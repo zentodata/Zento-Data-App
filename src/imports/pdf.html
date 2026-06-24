@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cotización - Zento Data</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:Arial,sans-serif;background:#f5f5f5;padding:0}
+    .container{max-width:100%;height:100vh;display:flex;flex-direction:column}
+    .header{background:linear-gradient(135deg,#0ea5c8 0%,#06b6d4 100%);color:white;padding:15px 20px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
+    .header h1{font-size:20px;font-weight:700}
+    .header h2{font-size:13px;font-weight:400;margin-top:3px;opacity:0.9}
+    .content{flex:1;display:flex;align-items:center;justify-content:center;padding:20px}
+    .pdf-viewer{width:100%;height:100%;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);overflow:hidden;display:flex;flex-direction:column}
+    .pdf-container{flex:1;overflow:auto;background:#f0f0f0;display:flex;align-items:center;justify-content:center}
+    .pdf-container embed{width:100%;height:100%}
+    .pdf-container iframe{width:100%;height:100%;border:none}
+    .loading{text-align:center;padding:40px;color:#666}
+    .spinner{border:4px solid #f3f3f3;border-top:4px solid #0ea5c8;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 20px}
+    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+    .error{padding:40px;background:#fee;border:1px solid #fcc;border-radius:8px;color:#c33;text-align:center;margin:20px;font-size:14px;line-height:1.6}
+    @media(max-width:768px){
+      .header{padding:12px}
+      .header h1{font-size:16px}
+      .header h2{font-size:11px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1>Cotización - Zento Data</h1>
+        <h2 id="header-info">Cargando...</h2>
+      </div>
+    </div>
+    <div class="content">
+      <div class="pdf-viewer">
+        <div class="pdf-container" id="pdf-viewer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function cargarPDF(){
+      const viewer=document.getElementById('pdf-viewer');
+      const params=new URLSearchParams(window.location.search);
+      const cotId=params.get('id');
+      
+      if(!cotId){
+        mostrarError('No se especificó una cotización.<br><br>Abre la app y haz clic en "Generar PDF" para ver la cotización.');
+        return;
+      }
+      
+      // Buscar la cotización en localStorage
+      const cotData=localStorage.getItem('zento_cot_'+cotId);
+      
+      if(!cotData){
+        mostrarError('Cotización no encontrada.<br><br>Es posible que el link haya expirado o los datos se hayan limpiado.<br><br>Genera una nueva cotización desde la app.');
+        return;
+      }
+      
+      try {
+        const cot=JSON.parse(cotData);
+        
+        // Validar que tenga el PDF
+        if(!cot.pdfBase64 || cot.pdfBase64.length<100){
+          mostrarError('Error: Los datos del PDF están incompletos.');
+          return;
+        }
+        
+        // Actualizar header
+        document.title='Cotización '+cot.cotNum+' - '+cot.cliente+' - Zento Data';
+        document.getElementById('header-info').textContent=`Cot. #${cot.cotNum} | ${cot.cliente}`;
+        
+        // Mostrar PDF en iframe
+        const pdfDataUri='data:application/pdf;base64,'+cot.pdfBase64;
+        viewer.innerHTML=`<iframe src="${pdfDataUri}"></iframe>`;
+        
+      } catch(e) {
+        console.error('Error parseando cotización:', e);
+        mostrarError('Error al cargar los datos de la cotización.');
+      }
+    }
+
+    function mostrarError(mensaje){
+      const viewer=document.getElementById('pdf-viewer');
+      viewer.innerHTML=`<div class="error"><div>${mensaje}</div><p style="margin-top:15px;font-size:12px;color:#999">Contacto: +502 4204-3583</p></div>`;
+      document.getElementById('header-info').textContent='Error cargando PDF';
+    }
+
+    window.addEventListener('load',cargarPDF);
+  </script>
+</body>
+</html>

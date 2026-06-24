@@ -1,0 +1,200 @@
+{
+  "id": "com.zentodata.cotizador",
+  "name": "Zento Data - Cotizador Profesional",
+  "short_name": "Zento Data",
+  "description": "Cotizador profesional de seguridad electrónica e instalación de redes en Guatemala | Professional security and network installation quoter",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#07090f",
+  "theme_color": "#0ea5c8",
+  "lang": "es",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva Cotización",
+      "short_name": "Cotización",
+      "description": "Crear una nueva cotización rápidamente",
+      "url": "/?tab=cotizador&lang=es",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Hoja de Trabajo",
+      "short_name": "Hoja",
+      "description": "Acceder a hojas de trabajo",
+      "url": "/?tab=hoja&lang=es",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Historial",
+      "short_name": "Historial",
+      "description": "Ver historial de cotizaciones",
+      "url": "/?tab=seguimiento&lang=es",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "/files",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "text/plain": [".txt"],
+        "application/json": [".json"]
+      }
+    }
+  ],
+  "launch_handler": {
+    "client_mode": ["navigate-new", "auto"]
+  },
+  "protocol_handlers": [
+    {
+      "protocol": "web+zento",
+      "url": "/?url=%s"
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "play",
+      "url": "https://play.google.com/store/apps/details?id=com.zentodata.cotizador",
+      "id": "com.zentodata.cotizador"
+    }
+  ],
+  "iarc_rating_id": "e84b9519-12e0-a841-7ebc-72549dc1dcf3",
+  "note_taking": {
+    "new_note_url": "/?tab=cotizador"
+  },
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "browser"
+  ],
+  "scope_extensions": [
+    {
+      "origin": "https://zento-data.com"
+    },
+    {
+      "origin": "https://www.zento-data.com"
+    },
+    {
+      "origin": "https://zentodata.com"
+    },
+    {
+      "origin": "https://www.zentodata.com"
+    }
+  ],
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "widgets": [
+    {
+      "name": "Cotizador Zento Data",
+      "short_name": "Cotización",
+      "description": "Widget para crear cotizaciones rápidamente",
+      "tag": "zento-quote-widget",
+      "screenshot": {
+        "src": "/icon-192.png",
+        "sizes": "192x192",
+        "type": "image/png",
+        "form_factor": "all"
+      },
+      "data": "/?tab=cotizador",
+      "sizes": [
+        {
+          "size": "small",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "size": "medium",
+          "width": 300,
+          "height": 150
+        }
+      ]
+    },
+    {
+      "name": "Historial de Cotizaciones",
+      "short_name": "Historial",
+      "description": "Widget para ver últimas cotizaciones",
+      "tag": "zento-history-widget",
+      "screenshot": {
+        "src": "/icon-192.png",
+        "sizes": "192x192",
+        "type": "image/png",
+        "form_factor": "all"
+      },
+      "data": "/?tab=seguimiento",
+      "sizes": [
+        {
+          "size": "medium",
+          "width": 300,
+          "height": 300
+        }
+      ]
+    }
+  ]
+}

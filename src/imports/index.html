@@ -1,0 +1,2400 @@
+<!DOCTYPE html>  
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Zento Data — Cotizador</title>
+<meta name="description" content="Cotizador profesional de seguridad electrónica e instalación de redes en Guatemala">
+<meta name="theme-color" content="#0ea5c8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Zento Data">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%230ea5c8' width='192' height='192'/><text x='96' y='120' font-size='80' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>Z</text></svg>">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%230ea5c8' width='192' height='192'/><text x='96' y='120' font-size='80' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>Z</text></svg>">
+<link rel="manifest" href="manifest.json">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#07090f;color:#e8e8f0;min-height:100vh}
+:root{--a:#0ea5c8;--b:#1a4fa8;--grad:linear-gradient(135deg,#1a4fa8,#0ea5c8)}
+.top-nav{background:#05060e;border-bottom:1px solid #1a2235;padding:0 24px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:200;overflow-x:auto;overflow-y:hidden}
+.nav-brand{font-size:17px;font-weight:800;color:#fff;margin-right:32px;white-space:nowrap}
+.nav-brand span{background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.tab-btn{padding:16px 20px;font-size:13.5px;font-weight:600;color:#8090a8;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;transition:all .2s}
+.tab-btn.active{color:#fff;border-bottom-color:var(--a)}
+.tab-btn:hover:not(.active){color:#c8d8e8}
+.sync-area{margin-left:auto;display:flex;gap:8px;align-items:center}
+.menu-hamburguesa{display:none;background:none;border:none;font-size:24px;color:#fff;cursor:pointer;padding:8px}
+.menu-hamburguesa:hover{color:var(--a)}
+
+/* SIDEBAR MENÚ */
+.sidebar-menu{position:fixed;left:0;top:0;width:280px;height:100vh;background:#0b0e1a;border-right:1px solid #1a2235;z-index:600;transform:translateX(-100%);transition:transform .3s ease;overflow-y:auto;padding-top:60px}
+.sidebar-menu.open{transform:translateX(0)}
+.sidebar-header{position:fixed;top:0;left:0;width:280px;background:#05060e;border-bottom:1px solid #1a2235;padding:16px;display:flex;justify-content:space-between;align-items:center;z-index:601}
+.sidebar-title{font-size:13px;font-weight:700;color:var(--a);text-transform:uppercase;letter-spacing:1px}
+.close-menu{background:none;border:none;font-size:20px;color:#8090a8;cursor:pointer;padding:0}
+.close-menu:hover{color:#fff}
+.sidebar-items{padding:16px 0}
+.sidebar-item{width:100%;background:none;border:none;text-align:left;padding:14px 20px;font-size:14px;font-weight:500;color:#c8d8e8;cursor:pointer;transition:all .2s;border-left:3px solid transparent}
+.sidebar-item:hover{background:rgba(14,165,200,.1);color:#fff;border-left-color:var(--a)}
+.sidebar-item.active{background:rgba(14,165,200,.15);color:#fff;border-left-color:var(--a)}
+
+/* Overlay cuando sidebar está abierto */
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:599}
+.sidebar-overlay.open{display:block}
+.page{display:none;padding:26px 20px;max-width:960px;margin:0 auto}
+.page.active{display:block}
+.card{background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px}
+.card-title{font-size:11.5px;font-weight:700;color:var(--a);text-transform:uppercase;letter-spacing:2px;margin-bottom:16px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.full{grid-column:1/-1}
+label{display:block;font-size:11.5px;color:#8090a8;margin-bottom:4px;font-weight:600;letter-spacing:.4px}
+input,textarea,select{width:100%;background:#060810;border:1px solid #1a2235;border-radius:8px;padding:9px 12px;color:#e8e8f0;font-size:13.5px;font-family:inherit;transition:border-color .2s}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--a)}
+textarea{resize:vertical;min-height:68px;line-height:1.55}
+select option{background:#0b0e1a}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .2s}
+.btn-primary{background:var(--grad);color:#fff}.btn-primary:hover{opacity:.85}
+.btn-ghost{background:#060810;border:1px solid #1a2235;color:#c8d8e8}.btn-ghost:hover{border-color:var(--a);color:#fff}
+.btn-danger{background:transparent;border:1px solid #ef4444;color:#ef4444}.btn-danger:hover{background:#ef4444;color:#fff}
+.btn-sm{padding:6px 12px;font-size:12px}
+.service-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:9px}
+.svc-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;width:100%}
+.svc-check-label{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:#c8d8e8;padding:10px 12px;background:#060810;border:1px solid #1a2235;border-radius:8px;user-select:none;transition:border-color .18s,background .18s;min-height:44px}
+.svc-check-label:hover{border-color:#2a4a7a;background:#081018}
+.svc-check-label input[type="checkbox"]{width:16px;height:16px;min-width:16px;accent-color:var(--a);cursor:pointer}
+.svc-check-label span{line-height:1.3;white-space:normal}
+.svc-opt{background:#060810;border:2px solid #1a2235;border-radius:10px;padding:12px 13px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:9px}
+.svc-opt:hover{border-color:#2a4a7a}
+.svc-opt.active{border-color:var(--a);background:#091520}
+.svc-opt .ico{font-size:19px;min-width:26px;text-align:center}
+.svc-opt .lbl{font-size:12.5px;font-weight:600;color:#c8d8e8;line-height:1.3}
+.svc-opt.active .lbl{color:#fff}
+.items-head{display:grid;grid-template-columns:54px 1fr 105px 96px 30px;gap:8px;padding:7px 0;border-bottom:1px solid #1a2235;font-size:10.5px;font-weight:700;color:#8090a8;text-transform:uppercase;letter-spacing:1px}
+.item-row{display:grid;grid-template-columns:54px 1fr 105px 96px 30px;gap:8px;align-items:start;padding:10px 0;border-bottom:1px solid #0f1220}
+.item-desc{display:flex;flex-direction:column;gap:5px}
+.total-cell{color:#fff;font-weight:700;font-size:13px;padding-top:10px}
+.del-btn{background:transparent;border:1px solid #2a1515;border-radius:6px;color:#ef4444;cursor:pointer;width:28px;height:28px;font-size:15px;display:flex;align-items:center;justify-content:center;margin-top:10px}
+.del-btn:hover{background:#1a0808}
+.add-item-btn{background:#060810;border:1px dashed #1a2235;border-radius:8px;padding:9px;width:100%;color:var(--a);font-size:13px;font-weight:600;cursor:pointer;margin-top:9px}
+.add-item-btn:hover{border-color:var(--a)}
+.totals-row{display:flex;justify-content:flex-end;margin-top:13px}
+.totals-box{background:#060810;border:1px solid #1a2235;border-radius:10px;padding:13px 20px;min-width:190px}
+.trow{display:flex;justify-content:space-between;gap:34px;font-size:13px;padding:3px 0}
+.trow.total{font-size:16px;font-weight:800;color:#fff;border-top:1px solid #1a2235;margin-top:7px;padding-top:8px}
+.trow span:last-child{color:var(--a)}
+.cl-preview-box{background:#060810;border:1px solid #1a2235;border-radius:10px;padding:14px 16px;margin-top:12px}
+.cl-item{display:flex;gap:9px;margin-bottom:9px;font-size:12.5px;color:#c8d8e8;line-height:1.55}
+.cl-num{min-width:20px;height:20px;background:var(--grad);border-radius:4px;font-size:10px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center;margin-top:2px;flex-shrink:0}
+.terms-preview{background:#091822;border-left:3px solid var(--a);padding:9px 13px;margin-top:9px;font-size:12px;color:#c8d8e8;border-radius:0 6px 6px 0}
+.cat-toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.search-input{background:#060810;border:1px solid #1a2235;border-radius:8px;padding:9px 12px;color:#e8e8f0;font-size:13px;width:220px}
+.search-input:focus{outline:none;border-color:var(--a)}
+.filter-select{background:#060810;border:1px solid #1a2235;border-radius:8px;padding:9px 12px;color:#e8e8f0;font-size:13px;cursor:pointer}
+.cat-table{width:100%;border-collapse:collapse}
+.cat-table th{padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:#8090a8;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #1a2235}
+.cat-table td{padding:10px 12px;font-size:13px;border-bottom:1px solid #0f1220;vertical-align:top}
+.cat-table tr:hover td{background:#0a0d1a}
+.cat-tag{display:inline-block;background:rgba(14,165,200,.12);color:var(--a);border:1px solid rgba(14,165,200,.2);font-size:10.5px;padding:2px 8px;border-radius:100px}
+.empty-state{text-align:center;padding:50px 20px;color:#8090a8}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#0b0e1a;border:1px solid #1a2235;border-radius:14px;padding:28px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;margin:16px}
+.modal h3{font-size:16px;font-weight:700;color:#fff;margin-bottom:20px}
+.modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.toast{position:fixed;bottom:24px;right:24px;background:#0ea5c8;color:#fff;padding:11px 20px;border-radius:8px;font-size:13.5px;font-weight:600;z-index:999;transform:translateY(60px);opacity:0;transition:all .3s}
+.toast.show{transform:translateY(0);opacity:1}
+.fb-setup{background:#091520;border:1px solid #1a4fa8;border-radius:10px;padding:16px 18px;margin-bottom:18px;font-size:13px;color:#c8d8e8;line-height:1.6}
+.fb-setup strong{color:#fff}
+.fb-setup input{margin-top:8px}
+@media print{
+  .top-nav,.page,.modal-bg,.toast{display:none!important}
+  #preview{display:block!important;position:absolute;top:0;left:0;width:100%}
+}
+
+/* ===== RESPONSIVE MÓVIL ===== */
+@media (max-width:768px){
+  /* Navegación */
+  .menu-hamburguesa{display:block}
+  .nav-tabs-desktop{display:none}
+  .top-nav{padding:0 14px;height:52px}
+  .nav-brand{font-size:15px;font-weight:800;margin-right:auto}
+  .nav-brand span{display:inline}
+  .sync-area{gap:6px;margin-left:0}
+  .sync-area .btn{padding:7px 10px;font-size:11px;white-space:nowrap}
+
+  /* Layout general */
+  body{font-size:14px}
+  .page{padding:16px 14px}
+  .card{padding:16px;margin-bottom:14px}
+  .card-title{font-size:10.5px;margin-bottom:12px}
+
+  /* Formularios */
+  .form-grid{grid-template-columns:1fr;gap:10px}
+  input,textarea,select{padding:11px 12px;font-size:15px}
+  input[type="text"],input[type="email"],input[type="date"],input[type="number"],textarea,select{min-height:44px}
+
+  /* Botones — NO forzar full width globalmente */
+  .btn{padding:10px 16px;font-size:12.5px}
+  .btn-sm{padding:8px 12px;font-size:11.5px}
+
+  /* Servicios */
+  .service-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+  .svc-opt{padding:10px 12px}
+  .svc-opt .ico{font-size:17px}
+  .svc-opt .lbl{font-size:11.5px}
+  /* Checkboxes servicios hoja de trabajo — 2 columnas en móvil */
+  .svc-check-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .svc-check-label{font-size:12.5px;padding:9px 11px}
+
+  /* Items cotizador */
+  .items-head{grid-template-columns:42px 1fr 82px 72px 28px;gap:6px;font-size:9.5px;padding:6px 0}
+  .item-row{grid-template-columns:42px 1fr 82px 72px 28px;gap:6px;padding:8px 0}
+  .total-cell{font-size:12px;padding-top:8px}
+
+  /* Totales */
+  .totals-row{margin-top:12px}
+  .totals-box{min-width:160px;padding:10px 16px}
+  .trow{gap:20px;font-size:12px}
+  .trow.total{font-size:14px}
+
+  /* Catálogo */
+  .cat-toolbar{gap:8px}
+  .search-input{width:100%;max-width:none;flex:1}
+  .cat-table{font-size:11.5px}
+  .cat-table th{padding:8px 10px;font-size:10px}
+  .cat-table td{padding:8px 10px}
+
+  /* Modal */
+  .modal{max-width:94vw;padding:20px;border-radius:12px;max-height:88vh;overflow-y:auto}
+  .modal h3{font-size:15px;margin-bottom:16px}
+
+  /* Toast */
+  .toast{bottom:16px;right:16px;left:16px;text-align:center;font-size:13px}
+
+  /* Firebase setup */
+  .fb-setup{padding:12px 14px;font-size:12.5px}
+
+  /* Estadísticas en 2 columnas */
+  #ven-stats,#pag-stats,#inv-stats{grid-template-columns:1fr 1fr!important;gap:10px!important}
+
+  /* Tablas de historial — scroll horizontal */
+  #ht-tabla-firebase,#ht-historial{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #ht-tabla-firebase table,#ht-historial table{min-width:540px}
+}
+
+@media (max-width:480px){
+  .top-nav{padding:0 12px;height:50px}
+  .nav-brand{font-size:14px}
+  .page{padding:12px 10px}
+
+  .card{padding:13px;margin-bottom:12px}
+  .card-title{font-size:9.5px;margin-bottom:10px}
+
+  .btn{padding:10px 14px;font-size:12px}
+  .btn-sm{padding:7px 11px;font-size:11px}
+
+  .service-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:7px}
+  .svc-check-grid{grid-template-columns:1fr 1fr;gap:7px}
+  .svc-check-label{font-size:12px;padding:8px 10px}
+
+  .items-head{grid-template-columns:36px 1fr 72px 62px 26px;gap:4px;font-size:8.5px}
+  .item-row{grid-template-columns:36px 1fr 72px 62px 26px;gap:4px}
+
+  .totals-box{min-width:140px;padding:9px 13px}
+  .trow{gap:14px;font-size:11.5px}
+  .trow.total{font-size:13.5px}
+
+  .search-input{font-size:13px}
+  .cat-table{font-size:11px}
+  .cat-table th{padding:6px 8px;font-size:9px}
+  .cat-table td{padding:7px 8px}
+
+  .modal{padding:16px;border-radius:10px}
+  .modal h3{font-size:14px;margin-bottom:14px}
+
+  .toast{bottom:12px;right:12px;left:12px;font-size:12px}
+
+  .sync-area{gap:4px}
+  #ven-stats,#pag-stats,#inv-stats{grid-template-columns:1fr 1fr!important}
+}
+#preview{display:none}
+.pdf{font-family:'Segoe UI',Arial,sans-serif;color:#111;max-width:780px;margin:0 auto;padding:18px 28px;background:#fff;font-size:11px}
+.pdf-hdr{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:3px solid #1a4fa8;padding-bottom:13px;margin-bottom:17px}
+.pdf-logo-area{display:flex;align-items:center;gap:10px}
+.pdf-logo-img{width:50px;height:50px;object-fit:contain;mix-blend-mode:multiply}
+.pdf-co h1{font-size:19px;font-weight:800;color:#1a2a4a}
+.pdf-co p{font-size:10px;color:#555}
+.pdf-cot h2{font-size:19px;font-weight:800;color:#1a4fa8;text-align:right}
+.pdf-cot p{font-size:11px;color:#555;text-align:right}
+.pdf-info{display:grid;grid-template-columns:1fr 1fr;gap:5px 24px;background:#f4f7fb;border-radius:7px;padding:11px 15px;margin-bottom:16px}
+.irow{display:flex;gap:5px;font-size:11px}
+.irow .lbl{font-weight:700;color:#1a2a4a;min-width:80px}
+table.ptable{width:100%;border-collapse:collapse;margin-bottom:13px}
+table.ptable thead tr{background:#1a4fa8;color:#fff}
+table.ptable thead th{padding:7px 9px;text-align:left;font-size:10.5px;font-weight:700}
+table.ptable thead th:nth-child(1){width:38px;text-align:center}
+table.ptable thead th:nth-child(3),table.ptable thead th:nth-child(4){text-align:right;width:84px}
+table.ptable tbody tr{border-bottom:1px solid #e8ecf4}
+table.ptable tbody tr:nth-child(even){background:#f8fafd}
+table.ptable tbody td{padding:7px 9px;vertical-align:top}
+table.ptable tbody td:first-child{text-align:center;font-weight:700;color:#1a4fa8}
+table.ptable tbody td:nth-child(3),table.ptable tbody td:nth-child(4){text-align:right;white-space:nowrap}
+.tdn{font-weight:700;display:block;margin-bottom:1px}
+.tdd{color:#555;line-height:1.4}
+.pdf-tot-row{display:flex;justify-content:flex-end;margin-bottom:14px}
+.pdf-tot-box{border:1px solid #d0d8ea;border-radius:7px;overflow:hidden;min-width:200px}
+.ptrow{display:flex;justify-content:space-between;padding:6px 12px;font-size:11px;border-bottom:1px solid #e8ecf4}
+.ptrow.final{background:#1a4fa8;color:#fff;font-weight:800;font-size:13px}
+.ptrow.final span:last-child{color:#7dd3fc}
+.pdf-cl{font-size:10.5px;color:#333;line-height:1.55;margin-bottom:13px}
+.pdf-cl h3{font-size:11px;font-weight:700;color:#1a2a4a;margin-bottom:6px;text-transform:uppercase;border-bottom:1px solid #d0d8ea;padding-bottom:4px}
+.pdf-cl ul{padding-left:12px}
+.pdf-cl ul li{margin-bottom:5px}
+.pdf-terms{margin-top:8px;padding:8px 12px;background:#f4f7fb;border-radius:5px;border-left:3px solid #1a4fa8;font-size:10.5px}
+.pdf-foot{display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid #d0d8ea;padding-top:11px}
+.firma-line{width:145px;border-top:1px solid #999;margin:0 auto 3px}
+.firma-box{text-align:center;font-size:10.5px}
+
+/* ===== MOBILE RESPONSIVE & FULLSCREEN ===== */
+html,body{height:100%;width:100%;overflow-x:hidden}
+body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+
+@media (max-width:768px){
+  html,body{margin:0}
+
+  /* Grids responsive - UNA COLUMNA */
+  .grid-mobile-1col{grid-template-columns:1fr !important}
+  .servicios-mobile-1col{grid-template-columns:1fr !important}
+  .patron-mobile-flex{flex-direction:column !important;gap:20px !important}
+  .patron-mobile-flex > div{width:100% !important;max-width:100% !important}
+
+  /* Formularios mobile */
+  input,textarea,select{width:100%;max-width:100%}
+
+  /* Contenedores overflow */
+  .page{width:100%;overflow-x:hidden}
+
+  /* Tablas: scroll horizontal en contenedores */
+  .cat-table-wrap,[style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+  /* Tabla catálogo específica */
+  #cat-table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #cat-table-wrap table{min-width:480px}
+
+  /* Patrón desbloqueo */
+  .patron-grid{width:100% !important;max-width:100% !important;padding:15px !important}
+  .patron-btn{width:45px !important;height:45px !important;font-size:14px !important}
+
+  /* Hoja de trabajo */
+  .hoja-section{width:100%;overflow-x:hidden}
+  .hoja-section input,.hoja-section textarea{width:100% !important}
+}
+  /* ===== MOBILE OPTIMIZED - HOJA DE TRABAJO ===== */
+  @media(max-width:768px){
+    #ht-servicios-desktop { display:none !important; }
+    #ht-servicios-mobile { display:block !important; }
+    #ht-patron-desktop { display:none !important; }
+    #ht-patron-mobile { display:block !important; }
+    #ht-desktop-section { display:none !important; }
+    #ht-hojas-guardadas { display:none !important; }
+    #ht-firebase-section { display:none !important; }
+    #ht-botones-desktop { display:none !important; }
+    
+    /* Catálogo móvil */
+    #cat-desktop-toolbar { display:none !important; }
+    #cat-desktop-table { display:none !important; }
+    #cat-mobile-section { display:block !important; }
+  }
+  
+  @media(min-width:769px){
+    #ht-servicios-desktop { display:block !important; }
+    #ht-servicios-mobile { display:none !important; }
+    #ht-patron-desktop { display:block !important; }
+    #ht-patron-mobile { display:none !important; }
+    #ht-desktop-section { display:block !important; }
+    #ht-hojas-guardadas { display:block !important; }
+    #ht-firebase-section { display:block !important; }
+    #ht-botones-desktop { display:block !important; }
+    
+    /* Catálogo desktop */
+    #cat-desktop-toolbar { display:flex !important; }
+    #cat-desktop-table { display:block !important; }
+    #cat-mobile-section { display:none !important; }
+  }
+
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+<div class="top-nav">
+  <div class="nav-brand">Zento<span>Data</span></div>
+  <div class="nav-tabs-desktop">
+    <button class="tab-btn active" onclick="showTab('cotizador',this)">📋 Cotizador</button>
+    <button class="tab-btn" onclick="showTab('seguimiento',this)">📊 Seguimiento</button>
+    <button class="tab-btn" onclick="showTab('catalogo',this)">📦 Mi Catálogo</button>
+    <button class="tab-btn" onclick="showTab('ventas',this)">📊 Ventas</button>
+    <button class="tab-btn" onclick="showTab('inventario',this)">🏦 Inventario</button>
+    <button class="tab-btn" onclick="showTab('gastos',this)">💰 Gastos</button>
+    <button class="tab-btn" onclick="showTab('pagos',this)">💳 Pagos</button>
+    <button class="tab-btn" onclick="showTab('hojatrabajo',this)">📄 Hoja de Trabajo</button>
+    <button class="tab-btn" onclick="showTab('mantenimiento',this)">🔧 Mantenimiento</button>
+  </div>
+  <div class="sync-area">
+    <button class="btn btn-ghost btn-sm" onclick="syncFromCloud()">⬇️ Descargar</button>
+    <button class="btn btn-ghost btn-sm" onclick="syncToCloud()">☁️ Subir</button>
+  </div>
+  <button class="menu-hamburguesa" onclick="toggleMenu()">☰</button>
+</div>
+
+<!-- SIDEBAR MENÚ MÓVIL -->
+<div class="sidebar-menu" id="sidebarMenu">
+  <div class="sidebar-header">
+    <div class="sidebar-title">MENÚ</div>
+    <button class="close-menu" onclick="toggleMenu()">✕</button>
+  </div>
+  <div class="sidebar-items">
+    <button class="sidebar-item" onclick="showTab('cotizador',this);toggleMenu()">📋 Cotizador</button>
+    <button class="sidebar-item" onclick="showTab('seguimiento',this);toggleMenu()">📊 Seguimiento</button>
+    <button class="sidebar-item" onclick="showTab('catalogo',this);toggleMenu()">📦 Mi Catálogo</button>
+    <button class="sidebar-item" onclick="showTab('ventas',this);toggleMenu()">📊 Ventas</button>
+    <button class="sidebar-item" onclick="showTab('inventario',this);toggleMenu()">🏦 Inventario</button>
+    <button class="sidebar-item" onclick="showTab('gastos',this);toggleMenu()">💰 Gastos</button>
+    <button class="sidebar-item" onclick="showTab('pagos',this);toggleMenu()">💳 Pagos</button>
+    <button class="sidebar-item" onclick="showTab('hojatrabajo',this);toggleMenu()">📄 Hoja de Trabajo</button>
+    <button class="sidebar-item" onclick="showTab('mantenimiento',this);toggleMenu()">🔧 Mantenimiento</button>
+  </div>
+</div>
+
+<!-- Overlay para cerrar menú -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMenu()"></div>
+
+<!-- COTIZADOR -->
+<div id="page-cotizador" class="page active">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
+    <div><div style="font-size:20px;font-weight:800;color:#fff">Generar Cotización</div><div style="font-size:13px;color:#8090a8;margin-top:2px">Completa los campos y genera tu PDF</div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="mostrarOpciones('cot')">📄 Generar PDF</button>
+      <button class="btn btn-ghost" onclick="mostrarHistorialCotizaciones()">📋 Historial</button>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">1. Tipo de servicio</div><div class="service-grid" id="svc-grid"></div></div>
+  <div class="card">
+    <div class="card-title">2. Datos del cliente</div>
+    <div class="form-grid">
+      <div><label>CLIENTE</label><input id="cliente" placeholder="Nombre completo"/></div>
+      <div><label>PROYECTO</label><input id="proyecto" placeholder="Descripción breve"/></div>
+      <div><label>EMAIL</label><input id="email" type="email" placeholder="email@ejemplo.com"/></div>
+      <div><label>WHATSAPP CLIENTE</label><input id="whatsapp" placeholder="+502 XXXX-XXXX"/></div>
+      <div class="full"><label>UBICACIÓN</label><input id="ubicacion" placeholder="Dirección completa" onkeyup="mostrarAlertaZona(this.value)"/></div>
+      <div id="zona-alerta" class="full"></div>
+      <div><label>FECHA</label><input id="fecha" type="date"/></div>
+      <div><label>VALIDEZ</label><input id="validez" value="15 días calendario"/></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">3. Productos / Servicios</div>
+    <div class="items-head"><span>Cant.</span><span>Producto / Servicio</span><span style="text-align:right">P. Unit.</span><span style="text-align:right">Total</span><span></span></div>
+    <div id="items-list"></div>
+    <button class="add-item-btn" onclick="addItem()">+ Agregar ítem</button>
+    <div class="totals-row"><div class="totals-box">
+      <div class="trow"><span>Subtotal</span><span id="sub-disp">Q 0.00</span></div>
+      <div class="trow total"><span>TOTAL</span><span id="tot-disp">Q 0.00</span></div>
+    </div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">4. Términos y condiciones <span style="font-size:11px;color:#8090a8;font-weight:400;text-transform:none;letter-spacing:0">(automáticos según servicio)</span></div>
+    <div id="cl-preview"><p style="color:#8090a8;font-size:13px">← Selecciona el tipo de servicio para ver los términos.</p></div>
+  </div>
+</div>
+
+<!-- SEGUIMIENTO DE COTIZACIONES -->
+<div id="page-seguimiento" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
+    <div><div style="font-size:20px;font-weight:800;color:#fff">Seguimiento de Cotizaciones</div><div style="font-size:13px;color:#8090a8;margin-top:2px">Gestiona y visualiza tus cotizaciones</div></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost btn-sm" onclick="renderSeguimientoCotizaciones()">🔄 Actualizar</button>
+      <button class="btn btn-danger btn-sm" onclick="if(confirm('¿Limpiar historial?')){cotizacionesHistorial=[];localStorage.setItem('zCotizaciones','[]');renderSeguimientoCotizaciones();showToast('✅ Limpiado')}">����️ Limpiar</button>
+    </div>
+  </div>
+  
+  <div class="card">
+    <div class="card-title">Estadísticas</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px" id="seg-stats">
+      <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:var(--a)">0</div>
+        <div style="font-size:11px;color:#8090a8;margin-top:4px">Total Cotizaciones</div>
+      </div>
+      <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#fbbf24">0</div>
+        <div style="font-size:11px;color:#8090a8;margin-top:4px">Pendientes</div>
+      </div>
+      <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:var(--a)">0</div>
+        <div style="font-size:11px;color:#8090a8;margin-top:4px">Enviadas</div>
+      </div>
+      <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#10b981">0</div>
+        <div style="font-size:11px;color:#8090a8;margin-top:4px">Aprobadas</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="card">
+    <div class="card-title">Filtrar por Estado</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn btn-sm btn-ghost" onclick="filtrarYRenderSeguimiento('todas')">Todas</button>
+      <button class="btn btn-sm btn-ghost" onclick="filtrarYRenderSeguimiento('pendiente')">Pendientes</button>
+      <button class="btn btn-sm btn-ghost" onclick="filtrarYRenderSeguimiento('enviada')">Enviadas</button>
+      <button class="btn btn-sm btn-ghost" onclick="filtrarYRenderSeguimiento('aprobada')">Aprobadas</button>
+      <button class="btn btn-sm btn-ghost" onclick="filtrarYRenderSeguimiento('rechazada')">Rechazadas</button>
+    </div>
+  </div>
+  
+  <div class="card">
+    <div class="card-title">Cotizaciones</div>
+    <div style="overflow-x:auto" id="seg-tabla">
+      <div style="padding:20px;text-align:center;color:#8090a8">Sin cotizaciones aún</div>
+    </div>
+  </div>
+</div>
+
+<!-- CATÁLOGO -->
+<div id="page-catalogo" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
+    <div><div style="font-size:20px;font-weight:800;color:#fff">Mi Catálogo</div><div style="font-size:13px;color:#8090a8;margin-top:2px">Administra tus productos, servicios y combos</div></div>
+    <button class="btn btn-primary" onclick="openModal()">+ Agregar producto</button>
+  </div>
+
+  <div class="fb-setup" id="fb-setup-box">
+    <strong>☁️ Configuración Firebase (solo primera vez)</strong><br>
+    Pega tu URL de Firebase Realtime Database y presiona Guardar. Después usa los botones ⬇️ Descargar / ☁️ Subir de arriba.<br>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="fb-url-input" placeholder="https://TU-PROYECTO-default-rtdb.firebaseio.com" style="flex:1"/>
+      <button class="btn btn-primary" onclick="saveFirebaseURL()" style="white-space:nowrap">💾 Guardar</button>
+    </div>
+    <div style="font-size:11px;color:#8090a8;margin-top:6px">👉 Entra a <strong>console.firebase.google.com</strong> → Crea proyecto → Realtime Database → Copia la URL</div>
+  </div>
+
+  <div class="card">
+    <div class="cat-toolbar">
+      <input class="search-input" id="cat-search" placeholder="🔍 Buscar..." oninput="renderCatalog()"/>
+      <select class="filter-select" id="cat-filter" onchange="renderCatalog()">
+        <option value="">Todas las categorías</option>
+        <option>Combos</option><option>CCTV y Videovigilancia</option><option>Hikvision</option>
+        <option>Dahua</option><option>ZKTeco</option><option>IP</option><option>Análogo</option>
+        <option>Control de Acceso</option><option>Redes y Cableado</option><option>Soporte Informático</option>
+        <option>Software y Licencias</option><option>Mano de Obra</option><option>Accesorios</option>
+      </select>
+      <div style="margin-left:auto;font-size:12px;color:#8090a8" id="cat-count"></div>
+    </div>
+    <div id="cat-table-wrap"></div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<!-- VENTAS -->
+<div id="page-ventas" class="page">
+  <div style="margin-bottom:22px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:20px;font-weight:800;color:#fff">📊 Ventas & Rentabilidad</div><button class="btn btn-primary" onclick="abrirVentaModal()">+ Venta</button></div>
+  <div id="ven-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px"></div>
+  
+  <!-- PAGO IVA -->
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px;border-left:4px solid #f59e0b">
+    <div style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;margin-bottom:12px">💰 Pago de IVA (5%)</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div><div style="font-size:10px;color:#8090a8;margin-bottom:4px">Facturado Mes</div><div style="font-size:18px;font-weight:800;color:var(--a)" id="iva-facturado">Q 0.00</div></div>
+      <div><div style="font-size:10px;color:#8090a8;margin-bottom:4px">IVA Total (5%)</div><div style="font-size:18px;font-weight:800;color:#f59e0b" id="iva-total">Q 0.00</div></div>
+      <div><div style="font-size:10px;color:#8090a8;margin-bottom:4px">A Pagar a SAT</div><div style="font-size:18px;font-weight:800;color:#ef4444" id="iva-pagar">Q 0.00</div></div>
+    </div>
+  </div>
+  
+  <!-- TABLA DE VENTAS -->
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">📋 Historial de Ventas</div>
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Fecha</th><th>Cliente</th><th>Total</th><th>Inversión</th><th>Ganancia</th><th>IVA (5%)</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="ven-tabla"></tbody></table></div>
+  </div>
+  
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">Gráfica Mensual</div>
+    <div style="height:300px"><canvas id="ventasChart"></canvas></div>
+  </div>
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">Productos Top</div>
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Producto</th><th>Ventas</th><th>Total</th><th>Ganancia</th></tr></thead><tbody id="top-prod"></tbody></table></div>
+  </div>
+</div>
+
+<!-- INVENTARIO -->
+<div id="page-inventario" class="page">
+  <div style="margin-bottom:22px;display:flex;justify-content:space-between"><div style="font-size:20px;font-weight:800;color:#fff">🏦 Inventario</div><button class="btn btn-primary" onclick="openInvModal()">+ Equipo</button></div>
+  <div id="inv-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px"></div>
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px">
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Equipo</th><th>Stock</th><th>Mín</th><th>Precio</th><th>Total</th><th>Estado</th><th>✕</th></tr></thead><tbody id="inv-tabla"></tbody></table></div>
+  </div>
+</div>
+
+<!-- GASTOS -->
+<div id="page-gastos" class="page">
+  <div style="margin-bottom:22px;display:flex;justify-content:space-between"><div style="font-size:20px;font-weight:800;color:#fff">💰 Gastos Operativos</div><button class="btn btn-primary" onclick="openGasModal()">+ Gasto</button></div>
+  <div id="gas-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px"></div>
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px">
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Fecha</th><th>Categoría</th><th>Monto</th><th>✕</th></tr></thead><tbody id="gas-tabla"></tbody></table></div>
+  </div>
+</div>
+
+<!-- PAGOS -->
+<div id="page-pagos" class="page">
+  <div style="margin-bottom:22px;display:flex;justify-content:space-between"><div style="font-size:20px;font-weight:800;color:#fff">💳 Pagos</div><button class="btn btn-primary" onclick="openPagModal()">+ Pago</button></div>
+  <div id="pag-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px"></div>
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px">
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Cliente</th><th>Total</th><th>Recibido</th><th>Saldo</th><th>%</th></tr></thead><tbody id="pag-tabla"></tbody></table></div>
+  </div>
+</div>
+
+<!-- MODALES NUEVOS -->
+<div class="modal-bg" id="inv-modal"><div class="modal"><h3>Nuevo Equipo</h3><input id="inv-nom" placeholder="Nombre"/><input id="inv-stock" type="number" placeholder="Stock" value="0" style="margin-top:10px"/><input id="inv-min" type="number" placeholder="Stock Mín" value="5" style="margin-top:10px"/><input id="inv-precio" type="number" step="0.01" placeholder="Precio" style="margin-top:10px"/><div class="modal-footer"><button class="btn btn-ghost" onclick="cerrarInv()">Cancelar</button><button class="btn btn-primary" onclick="guardarInv()">Guardar</button></div></div></div>
+
+<div class="modal-bg" id="gas-modal"><div class="modal"><h3>Nuevo Gasto</h3><input id="gas-fecha" type="date" style="margin-bottom:10px"/><select id="gas-cat" style="margin-bottom:10px"><option>Gasolina</option><option>Herramientas</option><option>Repuestos</option><option>Transporte</option><option>Otro</option></select><input id="gas-monto" type="number" step="0.01" placeholder="Monto" style="margin-bottom:10px"/><div class="modal-footer"><button class="btn btn-ghost" onclick="cerrarGas()">Cancelar</button><button class="btn btn-primary" onclick="guardarGas()">Guardar</button></div></div></div>
+
+<div class="modal-bg" id="pag-modal"><div class="modal"><h3>Registrar Pago</h3><select id="pag-cliente" style="margin-bottom:10px"><option>Seleccionar</option></select><input id="pag-monto" type="number" step="0.01" placeholder="Monto" style="margin-bottom:10px"/><div class="modal-footer"><button class="btn btn-ghost" onclick="cerrarPag()">Cancelar</button><button class="btn btn-primary" onclick="guardarPag()">Guardar</button></div></div></div>
+
+</div>
+</div>
+
+<!-- HOJA DE TRABAJO -->
+<div id="page-hojatrabajo" class="page">
+  <div style="margin-bottom:22px"><div style="font-size:20px;font-weight:800;color:#fff">📄 Hoja de Trabajo / Servicio</div><div style="font-size:13px;color:#8090a8;margin-top:2px">Genera PDF con patrón gráfico</div></div>
+  
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;width:100%" class="grid-mobile-1col">
+      
+      <!-- DATOS CLIENTE -->
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">📋 Datos del Cliente</div>
+        <input id="ht-nombre" placeholder="Nombre cliente" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-direccion" placeholder="Dirección" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-telefono" placeholder="Teléfono" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-email" placeholder="Email" style="margin-bottom:10px;width:100%"/>
+      </div>
+      
+      <!-- ORDEN Y FECHA -->
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">📅 Orden y Fecha</div>
+        <input id="ht-orden" placeholder="Telefofo o Num.Cot (ej: 7890-1234 o 001)" onchange="buscarCotizacionEnHoja(this.value)" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-fecha" type="date" style="margin-bottom:10px;width:100%"/><br>
+        <label style="font-size:11px;color:#8090a8;margin-bottom:8px">Técnico:</label><br>
+        <input id="ht-tecnico" placeholder="Nombre del técnico" style="margin-bottom:10px;width:100%"/>
+      </div>
+    </div>
+  </div>
+  
+  <!-- SERVICIOS (DESKTOP & MOBILE) -->
+  <div id="ht-servicios-desktop" style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">🔧 Servicios Realizados</div>
+    <div class="svc-check-grid">
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Instalación CCTV"/> <span>Instalación CCTV</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Redes/Cableado"/> <span>Redes / Cableado</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Configuración NVR/DVR"/> <span>Config. NVR/DVR</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Soporte Técnico"/> <span>Soporte Técnico</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Mantenimiento"/> <span>Mantenimiento</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Reparación"/> <span>Reparación</span></label>
+    </div>
+  </div>
+  
+  <!-- SERVICIOS MOBILE ONLY (simplificado) -->
+  <div id="ht-servicios-mobile" style="display:none;background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">🔧 Servicios Realizados</div>
+    <div class="svc-check-grid">
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Instalación CCTV"/> <span>Instalación CCTV</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Redes/Cableado"/> <span>Redes/Cableado</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Configuración NVR/DVR"/> <span>Config. NVR/DVR</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Soporte Técnico"/> <span>Soporte Técnico</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Mantenimiento"/> <span>Mantenimiento</span></label>
+      <label class="svc-check-label"><input type="checkbox" class="ht-servicio" value="Reparación"/> <span>Reparación</span></label>
+    </div>
+  </div>
+  
+  <!-- DESKTOP ONLY SECTIONS -->
+  <div id="ht-desktop-section">
+  
+  <!-- DESCRIPCIÓN -->
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px;display:block">📝 Descripción del Trabajo</label>
+    <textarea id="ht-desc" placeholder="Describe el trabajo realizado..." style="min-height:100px;width:100%;margin-bottom:10px"></textarea>
+  </div>
+  
+  <!-- EQUIPOS -->
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase">🖥️ Equipos Instalados</div>
+      <button class="btn btn-primary btn-sm" onclick="agregarEquipoHT()">+ Equipo</button>
+    </div>
+    <div style="overflow-x:auto"><table class="cat-table" id="ht-equipos-tabla"><thead><tr><th>Descripción</th><th>Marca</th><th>Especificación</th><th>✕</th></tr></thead><tbody id="ht-equipos"></tbody></table></div>
+  </div>
+  
+  <!-- CREDENCIALES -->
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;width:100%" class="grid-mobile-1col">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">🔐 Grabador (NVR/DVR)</div>
+        <input id="ht-grabador-usuario" placeholder="Usuario" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-grabador-pass" type="password" placeholder="Contraseña" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-grabador-ip" placeholder="IP (ej: 192.168.1.100)" style="margin-bottom:10px;width:100%"/>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">📹 Cámara IP (opcional)</div>
+        <input id="ht-camara-ip" placeholder="IP Cámara" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-camara-usuario" placeholder="Usuario" style="margin-bottom:10px;width:100%"/><br>
+        <input id="ht-camara-pass" type="password" placeholder="Contraseña" style="margin-bottom:10px;width:100%"/>
+      </div>
+    </div>
+  </div>
+  
+  <!-- OBSERVACIONES -->
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px;display:block">📌 Observaciones y Cláusulas</label>
+    <textarea id="ht-obs" placeholder="Garantía, términos técnicos, observaciones..." style="min-height:80px;width:100%;margin-bottom:10px"></textarea>
+  </div>
+  
+  <!-- BOTONES -->
+  <div id="ht-botones-desktop" style="display:flex;gap:10px;margin-bottom:18px">
+    <button class="btn btn-primary" onclick="mostrarOpciones('hoja')">📄 Generar PDF</button>
+    <button class="btn btn-primary" onclick="guardarHojaLocal()">💾 Guardar Local</button>
+    <button class="btn btn-ghost" onclick="limpiarFormularioHT()">🔄 Limpiar</button>
+  </div>
+  
+  <!-- HOJAS GUARDADAS -->
+  <div id="ht-hojas-guardadas" style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:12px">📋 Hojas Guardadas Localmente</div>
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Orden</th><th>Cliente</th><th>Fecha</th><th>Acciones</th></tr></thead><tbody id="ht-historial"></tbody></table></div>
+  </div>
+  
+  <!-- HOJAS FIREBASE (NUBE) -->
+  <div id="ht-firebase-section" style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-top:18px;border-left:4px solid #10b981">
+    <div style="font-size:11px;font-weight:700;color:#10b981;text-transform:uppercase;margin-bottom:12px">☁️ Hojas Guardadas en Firebase (Nube)</div>
+    <div style="margin-bottom:12px"><input id="ht-buscar-orden" placeholder="🔍 Buscar por número de orden..." style="width:100%;padding:10px;background:#060810;border:1px solid #1a2235;border-radius:8px;color:#e8e8f0" onkeyup="filtroOrden=this.value;renderHistorialFirebase()"/></div>
+    <div style="overflow-x:auto"><table class="cat-table"><thead><tr><th>Orden</th><th>Cliente</th><th>Fecha</th><th>Acciones</th></tr></thead><tbody id="ht-tabla-firebase"></tbody></table></div>
+  </div>
+  
+  </div><!-- END ht-desktop-section -->
+  
+  <!-- PATRÓN GRÁFICO (DESKTOP) -->
+  <div id="ht-patron-desktop" style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:16px">🔓 Patrón de Desbloqueo (Opcional)</div>
+    <div style="display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap" class="patron-mobile-flex">
+      <div style="width:100%;max-width:200px">
+        <div style="font-size:12px;color:#c8d8e8;margin-bottom:12px">Selecciona los números en orden:</div>
+        <div style="display:grid;grid-template-columns:repeat(3,50px);gap:8px" id="ht-patron-selector">
+          <button class="btn" onclick="seleccionarPatron(1)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-1">1</button>
+          <button class="btn" onclick="seleccionarPatron(2)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-2">2</button>
+          <button class="btn" onclick="seleccionarPatron(3)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-3">3</button>
+          <button class="btn" onclick="seleccionarPatron(4)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-4">4</button>
+          <button class="btn" onclick="seleccionarPatron(5)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-5">5</button>
+          <button class="btn" onclick="seleccionarPatron(6)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-6">6</button>
+          <button class="btn" onclick="seleccionarPatron(7)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-7">7</button>
+          <button class="btn" onclick="seleccionarPatron(8)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-8">8</button>
+          <button class="btn" onclick="seleccionarPatron(9)" style="width:100%;height:50px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0" id="btn-9">9</button>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn btn-ghost btn-sm" onclick="limpiarPatron()" style="width:100%">🔄 Limpiar Patrón</button>
+        </div>
+      </div>
+      <div style="width:100%;max-width:200px">
+        <div style="font-size:12px;color:#8090a8;margin-bottom:8px">Vista previa:</div>
+        <div style="display:grid;grid-template-columns:repeat(3,40px);gap:6px;background:#060810;padding:12px;border-radius:8px;border:1px solid #1a2235" id="ht-patron-preview">
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">1</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">2</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">3</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">4</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">5</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">6</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">7</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">8</div>
+          <div style="width:40px;height:40px;border:1px solid #1a2235;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#8090a8;font-size:10px">9</div>
+        </div>
+        <div id="ht-patron-sequence" style="margin-top:12px;color:#e8e8f0;font-size:12px">Secuencia: —</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PATRÓN GRÁFICO (MOBILE - SIMPLIFICADO) -->
+  <div id="ht-patron-mobile" style="display:none;background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;margin-bottom:16px">🔓 Patrón de Desbloqueo</div>
+    <div style="font-size:12px;color:#c8d8e8;margin-bottom:12px">Selecciona los números en orden:</div>
+    <div style="display:grid;grid-template-columns:repeat(3,55px);gap:8px;margin-bottom:12px" id="ht-patron-selector-mobile">
+      <button class="btn" onclick="seleccionarPatron(1)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-1">1</button>
+      <button class="btn" onclick="seleccionarPatron(2)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-2">2</button>
+      <button class="btn" onclick="seleccionarPatron(3)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-3">3</button>
+      <button class="btn" onclick="seleccionarPatron(4)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-4">4</button>
+      <button class="btn" onclick="seleccionarPatron(5)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-5">5</button>
+      <button class="btn" onclick="seleccionarPatron(6)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-6">6</button>
+      <button class="btn" onclick="seleccionarPatron(7)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-7">7</button>
+      <button class="btn" onclick="seleccionarPatron(8)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-8">8</button>
+      <button class="btn" onclick="seleccionarPatron(9)" style="width:100%;height:55px;font-size:20px;font-weight:800;background:#060810;border:1px solid #1a2235;color:#e8e8f0;padding:0;border-radius:8px;cursor:pointer" id="btn-m-9">9</button>
+    </div>
+    <div id="ht-patron-sequence-mobile" style="margin-bottom:12px;color:#c8d8e8;font-size:12px">Secuencia: —</div>
+    <button class="btn btn-ghost btn-sm" onclick="limpiarPatron()" style="width:100%">🔄 Limpiar patrón</button>
+  </div>
+  
+<!-- MODAL EDITAR VENTA -->
+<div class="modal-bg" id="ven-modal"><div class="modal"><h3 id="ven-modal-title">Nueva Venta</h3><div style="display:flex;flex-direction:column;gap:13px"><input id="ven-fecha" type="date" style="margin-bottom:10px"/><input id="ven-cliente" placeholder="Cliente" style="margin-bottom:10px"/><input id="ven-total" type="number" step="0.01" placeholder="Total Venta" style="margin-bottom:10px"/><input id="ven-inv" type="number" step="0.01" placeholder="Inversión" style="margin-bottom:10px"/><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ven-factura" style="width:auto"/> Con Factura (IVA)</label></div><div class="modal-footer"><button class="btn btn-ghost" onclick="cerrarVentaModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarVenta()">Guardar</button></div></div></div>
+
+<!-- MANTENIMIENTO -->
+<div id="page-mantenimiento" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px">
+    <div><div style="font-size:20px;font-weight:800;color:#fff">🔧 Recordatorios de Mantenimiento</div><div style="font-size:13px;color:#8090a8;margin-top:2px">Gestiona mantenimientos de cámaras y equipos</div></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="enableNotifications()">🔔 Activar Notificaciones</button>
+      <button class="btn btn-primary" onclick="openMantenimientoModal()">+ Recordatorio</button>
+    </div>
+  </div>
+  
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px;margin-bottom:18px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;letter-spacing:2px;margin-bottom:16px">Alertas Activas</div>
+    <div id="mant-alertas" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px"></div>
+  </div>
+  
+  <div style="background:#0b0e1a;border:1px solid #1a2235;border-radius:12px;padding:22px">
+    <div style="font-size:11px;font-weight:700;color:var(--a);text-transform:uppercase;letter-spacing:2px;margin-bottom:16px">Historial de Recordatorios</div>
+    <div style="overflow-x:auto">
+      <table class="cat-table">
+        <thead>
+          <tr><th>Cámara/Equipo</th><th>Tipo</th><th>Próximo Mant.</th><th>Proveedor</th><th>Notas</th><th>Estado</th><th>Acciones</th></tr>
+        </thead>
+        <tbody id="mant-tabla"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL MANTENIMIENTO -->
+<div class="modal-bg" id="mant-modal">
+  <div class="modal">
+    <h3>Nuevo Recordatorio de Mantenimiento</h3>
+    <div style="display:flex;flex-direction:column;gap:13px">
+      <div><label>CÁMARA/EQUIPO *</label><input id="mant-equipo" placeholder="Nombre del equipo"/></div>
+      <div><label>TIPO DE MANTENIMIENTO *</label>
+        <select id="mant-tipo">
+          <option value="">— Seleccionar —</option>
+          <option>Limpieza de lentes</option>
+          <option>Cambio de batería</option>
+          <option>Actualización firmware</option>
+          <option>Revisión de cables</option>
+          <option>Cambio de HDD</option>
+          <option>Inspección física</option>
+          <option>Cambio de tarjeta microSD</option>
+          <option>Revisión de conexiones</option>
+          <option>Limpieza general</option>
+          <option>Otro</option>
+        </select>
+      </div>
+      <div class="form-grid">
+        <div><label>PRÓXIMO MANTENIMIENTO *</label><input id="mant-fecha" type="date"/></div>
+        <div><label>PROVEEDOR</label>
+          <select id="mant-proveedor">
+            <option value="">— Seleccionar —</option>
+            <option>Smart Tec</option>
+            <option>Tech Corner</option>
+            <option>Box Security</option>
+            <option>Conectividad</option>
+            <option>Giganet</option>
+            <option>Viva Original</option>
+            <option>3S Simple Smart Solutions</option>
+            <option>Interno</option>
+          </select>
+        </div>
+      </div>
+      <div><label>NOTAS</label><textarea id="mant-notas" placeholder="Detalles, observaciones, etc..." style="min-height:70px"></textarea></div>
+      <div><label>FRECUENCIA DE RECORDATORIO (días)</label><input id="mant-frecuencia" type="number" value="30" min="1"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="cerrarMantModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarMantenimiento()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">Agregar producto</h3>
+    <div style="display:flex;flex-direction:column;gap:13px">
+      <div><label>NOMBRE *</label><input id="m-nombre" placeholder="Nombre del producto"/></div>
+      <div><label>MARCA</label>
+        <div style="display:flex;gap:8px">
+          <select id="m-marca" onchange="if(this.value)document.getElementById('m-marca-custom').value=''" style="flex:1">
+            <option value="">— Seleccionar —</option>
+            <option>Hikvision</option><option>Dahua</option><option>ZKTeco</option><option>HiLook</option>
+            <option>WD (Western Digital)</option><option>Seagate</option><option>Samsung</option>
+            <option>Kingston</option><option>ESET</option><option>Kaspersky</option><option>SpryWire</option>
+          </select>
+          <input id="m-marca-custom" placeholder="O escribe nueva..." style="flex:1"/>
+        </div>
+      </div>
+      <div><label>PROVEEDOR</label>
+        <select id="m-proveedor" style="width:100%">
+          <option value="">— Seleccionar —</option>
+          <option>Smart Tec</option>
+          <option>Tech Corner</option>
+          <option>Box Security</option>
+          <option>Conectividad</option>
+          <option>Giganet</option>
+          <option>Viva Original</option>
+          <option>3S Simple Smart Solutions</option>
+        </select>
+      </div>
+      <div><label>DESCRIPCIÓN TÉCNICA</label><textarea id="m-desc" placeholder="Descripción para la cotización..."></textarea></div>
+      <div class="form-grid">
+        <div><label>PRECIO VENTA (Q) *</label><input id="m-precio" type="number" min="0" step="0.01" placeholder="0.00" onchange="document.getElementById('m-iva').value=fmt(parseFloat(this.value||0)*0.05)" oninput="document.getElementById('m-iva').value=fmt(parseFloat(this.value||0)*0.05)"/></div>
+        <div><label>INVERSIÓN REAL (Q)</label><input id="m-inversion" type="number" min="0" step="0.01" placeholder="0.00"/></div>
+        <div><label>MATERIALES (Q)</label><input id="m-materiales" type="number" min="0" step="0.01" placeholder="Costo extra en materiales"/></div>
+        <div><label>MANO DE OBRA (Q)</label><input id="m-manoObra" type="number" min="0" step="0.01" placeholder="Costo de instalación/servicio"/></div>
+        <div><label>IVA (5% automático)</label><input id="m-iva" type="text" disabled placeholder="Calcula automáticamente" style="background:#060810;color:#8090a8"/></div>
+        <div style="display:flex;align-items:center;gap:10px;padding-top:20px">
+          <input type="checkbox" id="m-sinFactura" style="width:auto;cursor:pointer"/>
+          <label for="m-sinFactura" style="cursor:pointer;color:#c8d8e8;font-size:13px;margin:0">❌ Sin Factura (excluye IVA)</label>
+        </div>
+        <div><label>MATERIALES EXTRA (Q)</label><input id="m-materiales" type="number" min="0" step="0.01" placeholder="0.00" value="0"/></div>
+        <div><label>CATEGORÍA</label>
+          <select id="m-cat">
+            <option>Combos</option><option>CCTV y Videovigilancia</option><option>Hikvision</option>
+            <option>Dahua</option><option>ZKTeco</option><option>IP</option><option>Análogo</option>
+            <option>Control de Acceso</option><option>Redes y Cableado</option><option>Soporte Informático</option>
+            <option>Software y Licencias</option><option>Mano de Obra</option><option>Accesorios</option>
+          </select>
+        </div>
+        <div><label>UNIDAD</label><input id="m-unidad" value="unidad"/></div>
+        <div style="display:flex;align-items:center;gap:10px;padding-top:20px">
+          <input type="checkbox" id="m-gratis" style="width:auto"/>
+          <label for="m-gratis" style="cursor:pointer;color:#c8d8e8;font-size:13px">SIN COSTO</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveProduct()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div id="preview"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script>
+// ===== CONFIG FIREBASE =====
+function getFBUrl(){return localStorage.getItem('fb_url')||''}
+function saveFirebaseURL(){
+  const url=document.getElementById('fb-url-input').value.trim().replace(/\/$/,'');
+  if(!url){showToast('⚠️ Pega la URL de Firebase');return}
+  localStorage.setItem('fb_url',url);
+  document.getElementById('fb-setup-box').style.display='none';
+  showToast('✅ Firebase configurado');
+}
+
+// ===== CLOUD SYNC =====
+async function syncToCloud(){
+  const url=getFBUrl();
+  if(!url){showToast('⚠️ Configura Firebase primero en Mi Catálogo');return}
+  try{
+    showToast('⏳ Subiendo a Firebase...');
+    // Subir a Firebase 1 (catálogo, ventas, inventario, gastos, pagos)
+    const data1={catalog,ventas,inventario:inventario||[],gastos,pagos};
+    const r1=await fetch(url+'/zentodata.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data1)});
+    
+    if(r1.ok){
+      showToast('✅ Datos subidos a Firebase');
+      // Cargar hojas desde Firebase 2
+      await cargarHojasFirebase();
+    }else{showToast('⚠️ Error al subir. Revisa la URL')}
+  }catch(e){showToast('⚠️ Sin conexión o URL incorrecta');console.error(e)}
+}
+
+async function syncFromCloud(){
+  const url=getFBUrl();
+  if(!url){showToast('⚠️ Configura Firebase primero en Mi Catálogo');return}
+  try{
+    showToast('⏳ Descargando de Firebase...');
+    // Descargar de Firebase 1
+    const r1=await fetch(url+'/zentodata.json');
+    if(r1.ok){
+      const data=await r1.json();
+      if(data){
+        if(data.catalog&&Array.isArray(data.catalog)){
+          catalog=data.catalog;
+          localStorage.setItem('zentocat',JSON.stringify(catalog));
+          renderCatalog();
+        }
+        if(data.ventas){
+          ventas=data.ventas;
+          localStorage.setItem('zVentas',JSON.stringify(ventas));
+          renderVentas();
+        }
+        if(data.inventario){
+          inventario=data.inventario;
+          localStorage.setItem('zInventario',JSON.stringify(inventario));
+          renderInv();
+        }
+        if(data.gastos){
+          gastos=data.gastos;
+          localStorage.setItem('zGastos',JSON.stringify(gastos));
+          renderGastos();
+        }
+        if(data.pagos){
+          pagos=data.pagos;
+          localStorage.setItem('zPagos',JSON.stringify(pagos));
+          renderPagos();
+        }
+        showToast('✅ Datos descargados');
+        // También cargar hojas
+        await cargarHojasFirebase();
+      }else{showToast('⚠️ No hay datos en la nube aún. Sube primero.')}
+    }else{showToast('⚠️ Error al descargar')}
+  }catch(e){showToast('⚠️ Sin conexión o URL incorrecta');console.error(e)}
+}
+
+// ===== STORAGE LOCAL =====
+function localSave(data){localStorage.setItem('zentocat',JSON.stringify(data))}
+function localLoad(){try{const d=localStorage.getItem('zentocat');return d?JSON.parse(d):null}catch(e){return null}}
+
+// ===== UTILS =====
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function fmt(n){return'Q '+parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
+
+// ===== CATALOG =====
+let catalog=[];
+let editingId=null;
+
+const DEFAULT_CATALOG=[
+  {id:uid(),nombre:'Combo Kit Dahua 4 Cámaras (2MP)',marca:'Dahua',desc:'Sistema completo de circuito cerrado. Incluye grabador XVR 4 canales, disco duro interno, fuentes de poder, conectores DC y Baluns. Cuatro cámaras Bullet 2MP Full HD con Smart Dual Light, alcance 25m.',precio:1850,cat:'Combos',unidad:'combo',gratis:false},
+  {id:uid(),nombre:'Combo Kit Dahua 8 Cámaras (2MP)',marca:'Dahua',desc:'Sistema completo XVR 8 canales, disco duro 1TB, fuentes centralizadas y 8 cámaras Bullet 2MP Full HD Smart Dual Light.',precio:3200,cat:'Combos',unidad:'combo',gratis:false},
+  {id:uid(),nombre:'Cámara Bullet 2MP Dahua/HiLook',marca:'Dahua',desc:'Cámara exterior tipo Bullet resolución Full HD 2MP, tecnología Smart Dual Light, alcance 30m, IP67.',precio:350,cat:'CCTV y Videovigilancia',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Cámara Domo 2MP Dahua/HiLook',marca:'Dahua',desc:'Cámara interior/exterior tipo Domo 2MP Full HD, visión nocturna IR 20m, IP67.',precio:320,cat:'CCTV y Videovigilancia',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Grabador XVR 4 Canales Dahua',marca:'Dahua',desc:'Grabador digital XVR 4 canales compatible con cámaras análogas HDCVI, HDTVI, AHD. Soporta hasta 5MP. Acceso remoto vía app.',precio:600,cat:'CCTV y Videovigilancia',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Grabador XVR 8 Canales Dahua',marca:'Dahua',desc:'Grabador digital XVR 8 canales, compatible con cámaras análogas e IP. Acceso remoto DMSS.',precio:850,cat:'CCTV y Videovigilancia',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Disco Duro 1TB WD Purple',marca:'WD (Western Digital)',desc:'Disco duro de vigilancia WD Purple 1TB, grabación continua 24/7, compatible con XVR/NVR.',precio:450,cat:'CCTV y Videovigilancia',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Disco Duro 2TB WD Purple',marca:'WD (Western Digital)',desc:'Disco duro de vigilancia WD Purple 2TB para grabación continua 24/7.',precio:700,cat:'CCTV y Videovigilancia',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Biométrico ZKTeco Control de Acceso',marca:'ZKTeco',desc:'Control de acceso biométrico ZKTeco con huella dactilar y tarjeta RFID, capacidad 3,000 huellas.',precio:850,cat:'Control de Acceso',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Caja de Registro 4x4 para CCTV',marca:'',desc:'Caja estanca plástica de derivación 4x4. Protección hermética contra intemperie y polvo.',precio:30,cat:'Accesorios',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Cable HDMI 1.5m Alta Definición',marca:'',desc:'Cable HDMI de 1.5 metros para transmisión digital de video del grabador al monitor.',precio:45,cat:'Accesorios',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Cable Patchcord UTP Cat5E 1m',marca:'',desc:'Cable de red prefabricado 1 metro con conectores RJ45.',precio:20,cat:'Redes y Cableado',unidad:'unidad',gratis:false},
+  {id:uid(),nombre:'Instalación y Puesta en Marcha',marca:'',desc:'Mano de obra especializada: montaje físico de equipos, configuración de red y vinculación de aplicación móvil.',precio:0,cat:'Mano de Obra',unidad:'servicio',gratis:true},
+  {id:uid(),nombre:'Mantenimiento Preventivo PC/Laptop',marca:'',desc:'Limpieza interna, cambio de pasta térmica, verificación de componentes, optimización de sistema operativo.',precio:150,cat:'Soporte Informático',unidad:'equipo',gratis:false},
+  {id:uid(),nombre:'Formateo e Instalación de Sistema Operativo',marca:'',desc:'Formateo del disco, instalación de Windows, drivers y actualizaciones.',precio:200,cat:'Soporte Informático',unidad:'equipo',gratis:false},
+  {id:uid(),nombre:'Licencia Windows 11 Home Original',marca:'',desc:'Licencia digital original de Windows 11 Home, activación en línea, uso de por vida.',precio:400,cat:'Software y Licencias',unidad:'licencia',gratis:false},
+  {id:uid(),nombre:'Licencia Microsoft 365 Personal (1 año)',marca:'',desc:'Suscripción anual Microsoft 365: Word, Excel, PowerPoint, Outlook, 1TB OneDrive. 1 usuario.',precio:350,cat:'Software y Licencias',unidad:'licencia',gratis:false},
+  {id:uid(),nombre:'Antivirus ESET 1 año',marca:'ESET',desc:'Licencia ESET NOD32 por 1 año, 1 dispositivo. Protección contra malware y ransomware.',precio:180,cat:'Software y Licencias',unidad:'licencia',gratis:false},
+];
+
+function openModal(id=null){
+  editingId=id;
+  const m=id?catalog.find(p=>p.id===id):null;
+  document.getElementById('modal-title').textContent=id?'Editar producto':'Agregar producto';
+  document.getElementById('m-nombre').value=m?.nombre||'';
+  document.getElementById('m-marca').value=m?.marca||'';
+  document.getElementById('m-marca-custom').value='';
+  document.getElementById('m-desc').value=m?.desc||'';
+  document.getElementById('m-precio').value=m?.precio||'';
+  document.getElementById('m-inversion').value=m?.inversion||'';
+  document.getElementById('m-materiales').value=m?.materiales||'';
+  document.getElementById('m-manoObra').value=m?.manoObra||'';
+  document.getElementById('m-sinFactura').checked=m?.sinFactura||false;
+  document.getElementById('m-iva').value=m?.precio?fmt(parseFloat(m.precio)*0.05):'Q 0.00';
+  document.getElementById('m-proveedor').value=m?.proveedor||'';
+  document.getElementById('m-cat').value=m?.cat||'CCTV y Videovigilancia';
+  document.getElementById('m-unidad').value=m?.unidad||'unidad';
+  document.getElementById('m-gratis').checked=m?.gratis||false;
+  document.getElementById('modal').classList.add('open');
+  document.getElementById('m-nombre').focus();
+}
+function closeModal(){document.getElementById('modal').classList.remove('open')}
+
+function saveProduct(){
+  const nombre=document.getElementById('m-nombre').value.trim();
+  if(!nombre){showToast('⚠️ El nombre es requerido');return}
+  const marca=document.getElementById('m-marca').value||document.getElementById('m-marca-custom').value.trim();
+  const prod={
+    id:editingId||uid(),nombre,marca:marca||'',
+    desc:document.getElementById('m-desc').value.trim(),
+    precio:parseFloat(document.getElementById('m-precio').value)||0,
+    inversion:parseFloat(document.getElementById('m-inversion').value)||0,
+    materiales:parseFloat(document.getElementById('m-materiales').value)||0,
+    manoObra:parseFloat(document.getElementById('m-manoObra').value)||0,
+    sinFactura:document.getElementById('m-sinFactura').checked,
+    proveedor:document.getElementById('m-proveedor').value||'',
+    cat:document.getElementById('m-cat').value,
+    unidad:document.getElementById('m-unidad').value.trim()||'unidad',
+    gratis:document.getElementById('m-gratis').checked
+  };
+  if(editingId){catalog=catalog.map(p=>p.id===editingId?prod:p)}
+  else{catalog.unshift(prod)}
+  localSave(catalog);
+  closeModal();
+  renderCatalog();
+  showToast(editingId?'✅ Producto actualizado':'✅ Producto agregado');
+}
+
+function deleteProduct(id){
+  if(!confirm('¿Eliminar este producto?'))return;
+  catalog=catalog.filter(p=>p.id!==id);
+  localSave(catalog);
+  renderCatalog();
+  showToast('🗑️ Eliminado');
+}
+
+function duplicateProduct(id){
+  const p=catalog.find(x=>x.id===id);
+  if(!p)return;
+  catalog.unshift({...p,id:uid(),nombre:p.nombre+' (copia)'});
+  localSave(catalog);
+  renderCatalog();
+  showToast('📋 Duplicado');
+}
+
+function renderCatalog(){
+  const q=(document.getElementById('cat-search').value||'').toLowerCase();
+  const cf=document.getElementById('cat-filter').value;
+  const filtered=catalog.filter(p=>(!q||(p.nombre+p.desc+p.cat+p.marca).toLowerCase().includes(q))&&(!cf||p.cat===cf));
+  document.getElementById('cat-count').textContent=`${filtered.length} producto${filtered.length!==1?'s':''}`;
+  const wrap=document.getElementById('cat-table-wrap');
+  if(!filtered.length){wrap.innerHTML='<div class="empty-state"><div style="font-size:40px;margin-bottom:12px">📦</div><p>No hay productos.</p></div>';return}
+  wrap.innerHTML=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%"><table class="cat-table" style="min-width:600px">
+    <thead><tr><th>Producto</th><th>P. Venta</th><th>CT</th><th>MO</th><th>GK</th><th>Margen Real</th><th>Margen %</th><th style="text-align:right">Acciones</th></tr></thead>
+    <tbody>${filtered.map(p=>{const inv=parseFloat(p.inversion)||0;const mat=parseFloat(p.materiales)||0;const mano=parseFloat(p.manoObra)||0;const pv=parseFloat(p.precio)||0;const iva=p.sinFactura?0:(pv*0.05);const ct=inv+mat+iva;const gk=pv-ct;const margenReal=mano+gk;const margenPct=pv>0?((margenReal/pv)*100):0;let margenColor='';if(margenPct>=50)margenColor='background:rgba(16,185,129,.15);color:#10b981';else if(margenPct>=25)margenColor='background:rgba(245,158,11,.15);color:#f59e0b';else margenColor='background:rgba(239,68,68,.15);color:#ef4444';return`<tr>
+      <td><div style="font-weight:600;color:#fff;margin-bottom:3px">${p.nombre}</div><div style="font-size:11px;color:#8090a8">${p.desc?p.desc.substring(0,30)+(p.desc.length>30?'…':''):''}</div></td>
+      <td style="font-weight:700;color:var(--a);white-space:nowrap">${fmt(pv)}</td>
+      <td style="font-size:11px;color:#e8e8f0;white-space:nowrap">${fmt(ct)}</td>
+      <td style="font-size:11px;color:#10b981;font-weight:600;white-space:nowrap">+${fmt(mano)}</td>
+      <td style="font-size:11px;color:#f59e0b;font-weight:600;white-space:nowrap">${fmt(gk)}</td>
+      <td style="font-weight:700;color:#10b981;white-space:nowrap">${fmt(margenReal)}</td>
+      <td style="padding:6px 10px;border-radius:6px;font-weight:700;white-space:nowrap;${margenColor}">${margenPct.toFixed(1)}%</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick="openModal('${p.id}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" onclick="duplicateProduct('${p.id}')" style="margin-left:4px">📋</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}')" style="margin-left:4px">🗑️</button>
+      </td>
+    </tr>`}).join('')}</tbody>
+  </table></div>`;
+}
+
+// ===== TABS =====
+// ===== ZONAS ROJAS GUATEMALA =====
+const ZONAS_ROJAS=[
+  // ZONAS GUATEMALA CAPITAL (1-25)
+  {zona:'Zona 1',riesgo:6,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.64,lng:-90.50},
+  {zona:'Zona 2',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.65,lng:-90.49},
+  {zona:'Zona 3',riesgo:8,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.63,lng:-90.51},
+  {zona:'Zona 4',riesgo:7,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.62,lng:-90.52},
+  {zona:'Zona 5',riesgo:7,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.61,lng:-90.50},
+  {zona:'Zona 6',riesgo:8,municipio:'Mixco',departamento:'Guatemala',tipo:'zona',lat:14.63,lng:-90.59},
+  {zona:'Zona 7',riesgo:4,municipio:'Antigua Guatemala',departamento:'Sacatepéquez',tipo:'zona',lat:14.55,lng:-90.73},
+  {zona:'Zona 8',riesgo:6,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.60,lng:-90.52},
+  {zona:'Zona 9',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.60,lng:-90.49},
+  {zona:'Zona 10',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.59,lng:-90.49},
+  {zona:'Zona 11',riesgo:6,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.58,lng:-90.51},
+  {zona:'Zona 12',riesgo:7,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.57,lng:-90.49},
+  {zona:'Zona 13',riesgo:8,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.56,lng:-90.49},
+  {zona:'Zona 14',riesgo:6,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.58,lng:-90.48},
+  {zona:'Zona 15',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.57,lng:-90.48},
+  {zona:'Zona 16',riesgo:6,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.56,lng:-90.50},
+  {zona:'Zona 17',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.55,lng:-90.50},
+  {zona:'Zona 18',riesgo:9,municipio:'Villa Nueva',departamento:'Guatemala',tipo:'zona',lat:14.45,lng:-90.57},
+  {zona:'Zona 19',riesgo:4,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.63,lng:-90.48},
+  {zona:'Zona 20',riesgo:4,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.63,lng:-90.47},
+  {zona:'Zona 21',riesgo:4,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.63,lng:-90.46},
+  {zona:'Zona 22',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.62,lng:-90.46},
+  {zona:'Zona 23',riesgo:6,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.61,lng:-90.48},
+  {zona:'Zona 24',riesgo:5,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.60,lng:-90.48},
+  {zona:'Zona 25',riesgo:4,municipio:'Guatemala',departamento:'Guatemala',tipo:'zona',lat:14.59,lng:-90.48},
+  
+  // DEPARTAMENTO GUATEMALA - MUNICIPIOS
+  {zona:'Villa Nueva',riesgo:8,municipio:'Villa Nueva',departamento:'Guatemala',tipo:'municipio',lat:14.45,lng:-90.57},
+  {zona:'Mixco',riesgo:8,municipio:'Mixco',departamento:'Guatemala',tipo:'municipio',lat:14.63,lng:-90.59},
+  {zona:'San Juan Sacatepéquez',riesgo:8,municipio:'San Juan Sacatepéquez',departamento:'Guatemala',tipo:'municipio',lat:14.7,lng:-90.68},
+  {zona:'Chinautla',riesgo:7,municipio:'Chinautla',departamento:'Guatemala',tipo:'municipio',lat:14.73,lng:-90.44},
+  {zona:'Fraijanes',riesgo:7,municipio:'Fraijanes',departamento:'Guatemala',tipo:'municipio',lat:14.45,lng:-90.4},
+  {zona:'Palencia',riesgo:6,municipio:'Palencia',departamento:'Guatemala',tipo:'municipio',lat:14.6,lng:-90.34},
+  {zona:'Amatitlán',riesgo:7,municipio:'Amatitlán',departamento:'Guatemala',tipo:'municipio',lat:14.49,lng:-90.63},
+  {zona:'Petapa',riesgo:8,municipio:'Petapa',departamento:'Guatemala',tipo:'municipio',lat:14.39,lng:-90.56},
+  {zona:'Clapoteca',riesgo:5,municipio:'Clapoteca',departamento:'Guatemala',tipo:'municipio',lat:14.62,lng:-90.35},
+  {zona:'Amatitlán (Aldea Concepción)',riesgo:6,municipio:'Amatitlán',departamento:'Guatemala',tipo:'aldea',lat:14.48,lng:-90.62},
+  {zona:'Villa Nueva (Aldea El Naranjo)',riesgo:8,municipio:'Villa Nueva',departamento:'Guatemala',tipo:'aldea',lat:14.44,lng:-90.58},
+  
+  // DEPARTAMENTO SANTA ROSA
+  {zona:'Santa Rosa de Lima',riesgo:7,municipio:'Santa Rosa de Lima',departamento:'Santa Rosa',tipo:'municipio',lat:14.3,lng:-90.5},
+  {zona:'Chiquimulilla',riesgo:6,municipio:'Chiquimulilla',departamento:'Santa Rosa',tipo:'municipio',lat:14.19,lng:-90.34},
+  {zona:'Barberena',riesgo:5,municipio:'Barberena',departamento:'Santa Rosa',tipo:'municipio',lat:14.44,lng:-90.46},
+  {zona:'Cuilapa',riesgo:5,municipio:'Cuilapa',departamento:'Santa Rosa',tipo:'municipio',lat:14.31,lng:-90.54},
+  
+  // DEPARTAMENTO EL PROGRESO
+  {zona:'Guastatoya',riesgo:6,municipio:'Guastatoya',departamento:'El Progreso',tipo:'municipio',lat:14.82,lng:-90.33},
+  {zona:'San Agustín Acasaguastlán',riesgo:6,municipio:'San Agustín Acasaguastlán',departamento:'El Progreso',tipo:'municipio',lat:14.88,lng:-90.30},
+  {zona:'El Jícaro',riesgo:5,municipio:'El Jícaro',departamento:'El Progreso',tipo:'municipio',lat:14.75,lng:-90.28},
+  
+  // DEPARTAMENTO BAJA VERAPAZ
+  {zona:'Salama',riesgo:5,municipio:'Salama',departamento:'Baja Verapaz',tipo:'municipio',lat:15.04,lng:-90.35},
+  {zona:'Rabinal',riesgo:5,municipio:'Rabinal',departamento:'Baja Verapaz',tipo:'municipio',lat:15.14,lng:-90.47},
+  {zona:'San Miguel Chicaj',riesgo:4,municipio:'San Miguel Chicaj',departamento:'Baja Verapaz',tipo:'municipio',lat:15.20,lng:-90.45},
+  
+  // DEPARTAMENTO SACATEPÉQUEZ
+  {zona:'Antigua Guatemala',riesgo:4,municipio:'Antigua Guatemala',departamento:'Sacatepéquez',tipo:'municipio',lat:14.55,lng:-90.73},
+  {zona:'Ciudad Vieja',riesgo:4,municipio:'Ciudad Vieja',departamento:'Sacatepéquez',tipo:'municipio',lat:14.55,lng:-90.75},
+  {zona:'San Antonio Aguas Calientes',riesgo:3,municipio:'San Antonio Aguas Calientes',departamento:'Sacatepéquez',tipo:'municipio',lat:14.57,lng:-90.71},
+  {zona:'San Bartolomé Milpas Altas',riesgo:4,municipio:'San Bartolomé Milpas Altas',departamento:'Sacatepéquez',tipo:'municipio',lat:14.60,lng:-90.75},
+  {zona:'Santiago Sacatepéquez',riesgo:4,municipio:'Santiago Sacatepéquez',departamento:'Sacatepéquez',tipo:'municipio',lat:14.63,lng:-90.75},
+  
+  // DEPARTAMENTO ESCUINTLA
+  {zona:'Escuintla',riesgo:6,municipio:'Escuintla',departamento:'Escuintla',tipo:'municipio',lat:14.31,lng:-90.79},
+  {zona:'Puerto San José',riesgo:7,municipio:'Puerto San José',departamento:'Escuintla',tipo:'municipio',lat:14.26,lng:-91.02},
+  {zona:'Tiquisate',riesgo:6,municipio:'Tiquisate',departamento:'Escuintla',tipo:'municipio',lat:14.27,lng:-91.30},
+  {zona:'La Gomera',riesgo:6,municipio:'La Gomera',departamento:'Escuintla',tipo:'municipio',lat:14.28,lng:-90.93},
+  
+  // DEPARTAMENTO CHIMALTENANGO
+  {zona:'Chimaltenango',riesgo:4,municipio:'Chimaltenango',departamento:'Chimaltenango',tipo:'municipio',lat:14.68,lng:-90.83},
+  {zona:'Parramos',riesgo:4,municipio:'Parramos',departamento:'Chimaltenango',tipo:'municipio',lat:14.71,lng:-90.85},
+  {zona:'Patzun',riesgo:3,municipio:'Patzun',departamento:'Chimaltenango',tipo:'municipio',lat:14.74,lng:-90.91},
+];
+
+function evaluarZonaRoja(direccion){
+  if(!direccion||direccion.trim()==='')return null;
+  
+  const dirMin=direccion.toLowerCase();
+  
+  for(let zona of ZONAS_ROJAS){
+    if(dirMin.includes(zona.zona.toLowerCase())||
+       dirMin.includes(zona.municipio.toLowerCase())||
+       dirMin.includes(zona.departamento.toLowerCase())){
+      const tipoEmoji=zona.tipo==='zona'?'🏘️':zona.tipo==='municipio'?'🏙️':'🏘️';
+      return{
+        encontrada:zona.riesgo>=6,
+        zona:zona.zona,
+        riesgo:zona.riesgo,
+        municipio:zona.municipio,
+        departamento:zona.departamento,
+        tipo:zona.tipo,
+        emoji:tipoEmoji,
+        mensaje:zona.riesgo>=6?`⚠️ ZONA ROJA: ${zona.zona} - ${zona.municipio}, ${zona.departamento} (Riesgo ${zona.riesgo}/10)`:`✅ ${zona.zona} - ${zona.municipio}, ${zona.departamento} (Riesgo ${zona.riesgo}/10)`
+      };
+    }
+  }
+  
+  return{encontrada:false,mensaje:'✅ Zona verificada (aparentemente segura)'};
+}
+
+// ===== BÚSQUEDA DE COTIZACIÓN EN HOJA DE TRABAJO (POR ID SOLAMENTE) =====
+function buscarCotizacionEnHoja(ordenId){
+  if(!ordenId||ordenId.trim()===''){
+    document.getElementById('ht-nombre').value='';
+    document.getElementById('ht-telefono').value='';
+    document.getElementById('ht-direccion').value='';
+    return;
+  }
+  
+  const busqueda=ordenId.toLowerCase().trim();
+  const busquedaNum=busqueda.replace(/\D/g,''); // Solo números
+  let cot=null;
+  
+  // 1. PRIORIDAD: Buscar por número de teléfono
+  if(busquedaNum.length>=7){
+    cot=cotizacionesHistorial.find(x=>{
+      if(!x.whatsapp)return false;
+      const telClean=x.whatsapp.replace(/\D/g,'');
+      return telClean.includes(busquedaNum)||busquedaNum.includes(telClean.slice(-7));
+    });
+  }
+  
+  // 2. Si no encuentra por teléfono, buscar por número de cotización
+  if(!cot){
+    const cotNum=parseInt(busqueda);
+    if(!isNaN(cotNum)){
+      cot=cotizacionesHistorial.find(x=>{
+        const parts=x.id.split('-');
+        return parts.length>=2 && parseInt(parts[1])===cotNum;
+      });
+    }
+  }
+  
+  // 3. Si aún no encuentra, buscar en TODOS los campos
+  if(!cot){
+    cot=cotizacionesHistorial.find(x=>
+      (x.cliente&&x.cliente.toLowerCase().includes(busqueda))||
+      (x.proyecto&&x.proyecto.toLowerCase().includes(busqueda))||
+      (x.ubicacion&&x.ubicacion.toLowerCase().includes(busqueda))||
+      (x.id&&x.id.toLowerCase().includes(busqueda))
+    );
+  }
+  
+  if(cot){
+    document.getElementById('ht-nombre').value=cot.cliente||'';
+    document.getElementById('ht-telefono').value=cot.whatsapp||'';
+    document.getElementById('ht-direccion').value=cot.ubicacion||'';
+    showToast('Datos cargados');
+  }else{
+    document.getElementById('ht-nombre').value='';
+    document.getElementById('ht-telefono').value='';
+    document.getElementById('ht-direccion').value='';
+    showToast('No encontrado');
+  }
+}
+
+function mostrarAlertaZona(direccion){
+  const resultado=evaluarZonaRoja(direccion);
+  if(!resultado)return;
+  
+  const color=resultado.encontrada?'#ef4444':'#10b981';
+  const fondo=resultado.encontrada?'rgba(239,68,68,.15)':'rgba(16,185,129,.15)';
+  
+  const html=`
+    <div style="background:${fondo};border:1px solid ${color};border-radius:8px;padding:12px;display:flex;gap:10px;align-items:start">
+      <span style="font-size:20px">${resultado.encontrada?'🚨':'✅'}</span>
+      <div style="flex:1">
+        <div style="color:${color};font-weight:700;font-size:12px">${resultado.mensaje}</div>
+        ${resultado.tipo?`<div style="color:#8090a8;font-size:10px;margin-top:4px">Tipo: ${resultado.tipo==='zona'?'Zona Urbana 🏘️':resultado.tipo==='municipio'?'Municipio 🏙️':'Aldea 🏘️'} | Riesgo: ${resultado.riesgo}/10</div>`:''}
+        ${resultado.encontrada?`<div style="color:#8090a8;font-size:10px;margin-top:6px">⚠️ Consulta con tu equipo de seguridad antes de cotizar</div>`:''}
+      </div>
+    </div>
+  `;
+  
+  const alerta1=document.getElementById('zona-alerta');
+  if(alerta1)alerta1.innerHTML=html;
+  
+  const alerta2=document.getElementById('zona-alerta-hoja');
+  if(alerta2)alerta2.innerHTML=html;
+}
+function toggleMenu(){
+  const sidebar=document.getElementById('sidebarMenu');
+  const overlay=document.getElementById('sidebarOverlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('open');
+  document.body.style.overflow=sidebar.classList.contains('open')?'hidden':'auto';
+}
+
+function showTab(t,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+t).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ===== SISTEMA DE IDIOMAS (ESPAÑOL E INGLÉS) =====
+let idioma=localStorage.getItem('zIdiomaActual')||'es';
+
+const TEXTOS={
+  es:{
+    nuevo:'Nueva',
+    editar:'Editar',
+    eliminar:'Eliminar',
+    guardar:'Guardar',
+    cancelar:'Cancelar',
+    buscar:'Buscar',
+    cotizador:'Cotizador',
+    hoja:'Hoja de Trabajo',
+    seguimiento:'Seguimiento',
+    catálogo:'Catálogo',
+    ventas:'Ventas',
+    pagos:'Pagos',
+    inventario:'Inventario',
+    gastos:'Gastos',
+    configuración:'Configuración'
+  },
+  en:{
+    nuevo:'New',
+    editar:'Edit',
+    eliminar:'Delete',
+    guardar:'Save',
+    cancelar:'Cancel',
+    buscar:'Search',
+    cotizador:'Quoter',
+    hoja:'Work Sheet',
+    seguimiento:'Tracking',
+    catálogo:'Catalog',
+    ventas:'Sales',
+    pagos:'Payments',
+    inventario:'Inventory',
+    gastos:'Expenses',
+    configuración:'Settings'
+  }
+};
+
+function cambiarIdioma(lang){
+  if(lang!=='es'&&lang!=='en')return;
+  idioma=lang;
+  localStorage.setItem('zIdiomaActual',idioma);
+  // Recargar página para aplicar cambios
+  location.reload();
+}
+
+function t(clave){
+  return TEXTOS[idioma][clave]||clave;
+}
+
+// Agregar selector de idioma en nav
+window.addEventListener('DOMContentLoaded',()=>{
+  const syncArea=document.querySelector('.sync-area');
+  if(syncArea&&!document.getElementById('idioma-selector')){
+    const selector=document.createElement('div');
+    selector.id='idioma-selector';
+    selector.style.cssText='display:flex;gap:6px;margin-right:10px';
+    selector.innerHTML=`
+      <button onclick="cambiarIdioma('es')" style="padding:6px 10px;background:${idioma==='es'?'var(--a)':'#1a2235'};border:1px solid #2a3a4a;color:white;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600">ES</button>
+      <button onclick="cambiarIdioma('en')" style="padding:6px 10px;background:${idioma==='en'?'var(--a)':'#1a2235'};border:1px solid #2a3a4a;color:white;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600">EN</button>
+    `;
+    syncArea.insertBefore(selector,syncArea.firstChild);
+  }
+});
+
+// ===== SERVICES + ITEMS =====
+const SERVICES=[
+  {id:'inst_cam',ico:'📹',lbl:'Instalación de Cámaras',c1:{t:'Alcance de la Instalación',v:'El servicio comprende el montaje físico de cámaras en los puntos acordados, tendido de cableado UTP desde cada nodo hasta el equipo central, configuración del grabador y vinculación de la aplicación móvil en hasta dos dispositivos. Metraje adicional, canaletas decorativas o perforaciones en concreto de alta densidad generarán recargo a cotizar en sitio previo a su ejecución.'},c2:{t:'Conectividad y Monitoreo Remoto',v:'La habilitación del monitoreo remoto requiere conexión a internet activa con mínimo 4 Mbps de subida. La calidad de la transmisión remota depende exclusivamente del ISP del cliente; Zento Data no es responsable por interrupciones derivadas del servicio de internet.'},c3:{t:'Garantía',v:'Los equipos tienen garantía de fabricante de 12 meses por defectos de fábrica. La mano de obra tiene garantía de 90 días. Quedan excluidos: daños por vandalismo, descargas atmosféricas, sobretensiones eléctricas y exposición fuera del rango de operación del equipo.'},pago:'50% anticipo, 50% al finalizar.',tiempo:'1 día hábil (hasta 8 cámaras).'},
+  {id:'mant_cam',ico:'🔧',lbl:'Mantenimiento de Cámaras',c1:{t:'Alcance del Mantenimiento',v:'Incluye limpieza de lentes y carcasas, ajuste de ángulo de visión, inspección de cableado y conectores, comprobación de imagen en grabador y monitoreo remoto. No incluye reemplazo de piezas; los componentes dañados se cotizarán por separado con aprobación previa del cliente.'},c2:{t:'Condiciones y Limitaciones',v:'El cliente garantizará acceso libre a todas las cámaras y al equipo central. Zento Data no se responsabiliza por daños preexistentes. Si se requiere sustitución de componentes, el técnico notificará al cliente antes de proceder.'},c3:{t:'Garantía del Servicio',v:'La mano de obra y ajustes realizados tienen garantía de 30 días. Si la misma falla reaparece en ese período, Zento Data realizará revisión sin costo. No cubre fallas por causas externas.'},pago:'Pago total al finalizar.',tiempo:'Medio día hábil (hasta 8 cámaras).'},
+  {id:'mant_pc',ico:'💻',lbl:'Mantenimiento de PC',c1:{t:'Alcance del Servicio',v:'Incluye desmontaje y limpieza interna con aire comprimido, cambio de pasta térmica, verificación de ventiladores, diagnóstico de RAM, revisión de disco con herramientas S.M.A.R.T., actualización de drivers y sistema operativo.'},c2:{t:'Responsabilidad sobre Datos',v:'Zento Data no se responsabiliza por pérdida de datos durante el servicio. El cliente deberá realizar respaldo antes de entregar el equipo. En caso de formateo, el cliente firmará conformidad antes de proceder.'},c3:{t:'Garantía',v:'La mano de obra tiene garantía de 30 días para la misma falla. No cubre: daños por virus posteriores, mal uso, daños físicos tras la entrega.'},pago:'Pago total al retirar el equipo.',tiempo:'1 a 2 días hábiles según diagnóstico.'},
+  {id:'inst_bio',ico:'🔐',lbl:'Instalación de Biométrico',c1:{t:'Alcance',v:'Incluye montaje del dispositivo biométrico, cableado hasta cerradura eléctrica, configuración del software de gestión, registro de usuarios y capacitación básica al administrador. Obras civiles adicionales se cotizarán por separado.'},c2:{t:'Privacidad de Datos Biométricos',v:'Los datos biométricos se almacenan únicamente en el dispositivo local del cliente. Zento Data no retiene ni transmite datos biométricos. Es responsabilidad del cliente gestionar dichos datos conforme a la ley.'},c3:{t:'Garantía',v:'Los equipos tienen garantía de fabricante de 12 meses. La mano de obra tiene garantía de 90 días.'},pago:'50% anticipo, 50% al finalizar.',tiempo:'1 día hábil.'},
+  {id:'inst_sw',ico:'⚙️',lbl:'Instalación de Software',c1:{t:'Alcance',v:'Comprende instalación y configuración del software en los equipos del cliente, verificación de compatibilidad y capacitación básica al usuario principal.'},c2:{t:'Compatibilidad',v:'El cliente es responsable de asegurar que sus equipos cumplen los requisitos mínimos del software. Si se detecta incompatibilidad, se informará al cliente sin devolución del costo de mano de obra.'},c3:{t:'Garantía',v:'Garantía de instalación de 30 días. No cubre fallas por actualizaciones automáticas del SO o instalación de programas de terceros.'},pago:'Pago total al finalizar.',tiempo:'Mismo día según complejidad.'},
+  {id:'venta_sw',ico:'🪟',lbl:'Venta de Licencias',c1:{t:'Condiciones de Venta',v:'Las licencias son originales adquiridas por canales autorizados. No pueden cederse ni revenderse sin autorización del fabricante. La clave se entrega confirmado el pago total.'},c2:{t:'Política de No Devolución',v:'Por la naturaleza digital del producto, no se aceptan devoluciones una vez entregada la clave. Si una clave resulta inválida, Zento Data gestionará reposición dentro de 5 días hábiles sin costo.'},c3:{t:'Soporte',v:'Zento Data brinda soporte de activación básico al momento de entrega. El soporte avanzado corresponde al fabricante.'},pago:'Pago total previo a la entrega.',tiempo:'Entrega inmediata (licencias digitales).'},
+  {id:'mant_dvr',ico:'🖥️',lbl:'Mantenimiento DVR/NVR',c1:{t:'Alcance',v:'Incluye limpieza interna del grabador, diagnóstico del disco duro (S.M.A.R.T.), verificación de configuración de grabación, comprobación de fecha/hora y reconexión del acceso remoto si fuera necesario.'},c2:{t:'Responsabilidad sobre Grabaciones',v:'Zento Data no se responsabiliza por pérdida de grabaciones almacenadas. Si el disco requiere sustitución, el técnico informará al cliente antes de proceder. Cualquier acción que implique eliminación de grabaciones requerirá autorización expresa.'},c3:{t:'Garantía',v:'Mano de obra con garantía de 30 días. No cubre: cortes eléctricos posteriores, daños físicos o desgaste de disco con más de 3 años de uso continuo.'},pago:'Pago total al finalizar.',tiempo:'Medio día hábil.'},
+  {id:'cam_adicional',ico:'➕',lbl:'Cámara Adicional',c1:{t:'Alcance e Integración',v:'Incluye montaje de la cámara en punto acordado, tendido de cableado hasta el grabador central, configuración del canal y verificación de imagen. El cliente confirmará que el grabador tiene canales disponibles.'},c2:{t:'Compatibilidad',v:'Zento Data verificará compatibilidad antes de instalar. No se devuelve el costo de mano de obra si la instalación no puede completarse por incompatibilidad del equipo preexistente.'},c3:{t:'Garantía',v:'Garantía de fabricante 12 meses en la cámara nueva. Mano de obra con garantía de 90 días.'},pago:'Pago total al finalizar.',tiempo:'Mismo día hábil.'},
+  {id:'cable_estr',ico:'🔌',lbl:'Cableado Estructurado',
+   c1:{t:'Alcance de la Instalación',v:'El servicio comprende el diseño, tendido e instalación de infraestructura de red de datos estructurada, incluyendo: instalación de puntos de red (rosetas RJ45), tendido de cable UTP Cat5E/Cat6 desde cada punto hasta el panel de parcheo (patch panel), etiquetado de todos los cables según normativa, certificación básica de continuidad en cada punto, y organización del cableado en canaletas o tuberías conduit según lo acordado. El servicio contempla hasta el número de puntos de red indicados en esta cotización; puntos adicionales se cotizarán por separado.'},
+   c2:{t:'Condiciones Previas y Limitaciones',v:'El cliente deberá proporcionar acceso libre a todos los espacios donde se realizará el tendido del cableado, incluyendo cielos falsos, paredes y cuartos de comunicaciones. Las perforaciones en muros de concreto de alta densidad, instalación de tubería conduit empotrada en pared o trabajo en altura mayor a 4 metros requerirán equipo especializado y podrán generar recargo adicional a cotizar en sitio previo a su ejecución. Zento Data no se responsabiliza por daños en instalaciones eléctricas, tuberías u otras infraestructuras ocultas no declaradas por el cliente antes del inicio del proyecto.'},
+   c3:{t:'Garantía',v:'Zento Data garantiza la instalación y conectividad de todos los puntos de red instalados por noventa (90) días calendario. Si durante este período algún punto presenta falla de continuidad atribuible a la instalación, Zento Data realizará la corrección sin costo adicional. La garantía no cubre daños causados por: manipulación o modificación del cableado por terceros no autorizados, daños físicos por remodelaciones posteriores, roedores u otros agentes externos, ni deterioro por humedad en instalaciones no selladas correctamente por causas externas a Zento Data.'},
+   pago:'50% anticipo al confirmar el proyecto, 50% contra entrega al finalizar.',
+   tiempo:'Según alcance del proyecto (1 a 3 días hábiles).'},
+  {id:'cambio_dvr',ico:'🔄',lbl:'Cambio de Grabador',c1:{t:'Alcance',v:'Incluye retiro del grabador anterior, instalación y configuración del nuevo equipo, reconexi��n de todas las cámaras, configuración de grabación y vinculación de monitoreo remoto en hasta dos dispositivos.'},c2:{t:'Migración de Datos',v:'Las grabaciones del equipo anterior no pueden transferirse automáticamente si el disco no es compatible. Zento Data informará al cliente antes de proceder. La pérdida de grabaciones por incompatibilidad informada y aceptada no es responsabilidad de Zento Data.'},c3:{t:'Garantía',v:'El nuevo grabador tiene garantía de fabricante de 12 meses. La instalación tiene garantía de 90 días.'},pago:'50% anticipo, 50% al finalizar.',tiempo:'1 día hábil.'},
+];
+
+let selectedSvc=null,items=[],iid=0;
+
+function renderServices(){
+  document.getElementById('svc-grid').innerHTML=SERVICES.map(s=>`
+    <div class="svc-opt ${selectedSvc===s.id?'active':''}" onclick="selectSvc('${s.id}')">
+      <span class="ico">${s.ico}</span><span class="lbl">${s.lbl}</span>
+    </div>`).join('');
+}
+function selectSvc(id){selectedSvc=id;renderServices();renderClausulas()}
+function renderClausulas(){
+  const s=SERVICES.find(x=>x.id===selectedSvc);
+  const el=document.getElementById('cl-preview');
+  if(!s){el.innerHTML='<p style="color:#8090a8;font-size:13px">← Selecciona el tipo de servicio.</p>';return}
+  el.innerHTML=`<div style="display:inline-flex;align-items:center;gap:6px;background:#091520;border:1px solid #1a4fa8;color:#60b8d4;font-size:12px;padding:5px 12px;border-radius:100px;margin-bottom:13px">${s.ico} ${s.lbl}</div>
+  <div class="cl-preview-box">
+    ${[s.c1,s.c2,s.c3].map((c,i)=>`<div class="cl-item"><span class="cl-num">${i+1}</span><div><strong>${c.t}:</strong> ${c.v}</div></div>`).join('')}
+    <div class="terms-preview"><strong>Términos:</strong> ${s.pago} · ${s.tiempo}</div>
+  </div>`;
+}
+
+function addItem(){items.push({id:iid++,cant:1,nombre:'',desc:'',precio:0,gratis:false});renderItems()}
+function removeItem(id){items=items.filter(i=>i.id!==id);renderItems()}
+function updateField(id,f,v){
+  const it=items.find(i=>i.id===id);if(!it)return;
+  it[f]=(f==='cant'||f==='precio')?parseFloat(v)||0:v;
+  calcTotals();
+  const tc=document.getElementById('tc-'+id);
+  if(tc)tc.textContent=it.gratis?'SIN COSTO':fmt(it.cant*it.precio);
+}
+function selectProduct(itemId,prodId){
+  if(!prodId)return;
+  const p=catalog.find(x=>x.id===prodId);
+  const it=items.find(i=>i.id===itemId);
+  if(!p||!it)return;
+  const inv=parseFloat(p.inversion)||0;const mat=parseFloat(p.materiales)||0;const iva=p.sinFactura?0:(p.precio*0.05);const ct=inv+mat+iva;const gk=p.precio-ct;
+  it.nombre=p.nombre;it.desc=p.desc;it.precio=p.precio;it.gratis=p.gratis;it.prodId=prodId;it.gk=gk;it.descuentoPct=0;
+  renderItems();
+}
+
+function applyDescuento(itemId,pct){
+  const it=items.find(i=>i.id===itemId);
+  if(!it||!it.gk)return;
+  const desc=it.gk*(parseInt(pct)/100);
+  it.descuentoPct=pct;
+  it.precioConDesc=it.precio-desc;
+  renderItems();
+}
+function renderItems(){
+  const el=document.getElementById('items-list');el.innerHTML='';
+  items.forEach(it=>{
+    const r=document.createElement('div');r.className='item-row';
+    const opts=catalog.map(p=>`<option value="${p.id}" ${it.nombre===p.nombre?'selected':''}>${p.nombre}</option>`).join('');
+    r.innerHTML=`
+      <div><input type="number" min="1" value="${it.cant}" oninput="updateField(${it.id},'cant',this.value)" style="text-align:center"/></div>
+      <div class="item-desc">
+        <select onchange="selectProduct(${it.id},this.value)" style="font-weight:600;margin-bottom:4px">
+          <option value="">— Seleccionar del catálogo —</option>${opts}
+        </select>
+        <input placeholder="Nombre (si no está en catálogo)" value="${it.nombre}" oninput="updateField(${it.id},'nombre',this.value)" style="font-size:12.5px"/>
+        <textarea placeholder="Descripción técnica..." oninput="updateField(${it.id},'desc',this.value)" style="font-size:12px;min-height:55px">${it.desc||''}</textarea>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#8090a8;cursor:pointer">
+          <input type="checkbox" ${it.gratis?'checked':''} onchange="updateField(${it.id},'gratis',this.checked);renderItems()" style="width:auto"/> Sin costo
+        </label>
+        ${it.prodId?`<div style="margin-top:10px;border-top:1px solid #1a2235;padding-top:10px">
+          <label style="font-size:11px;color:var(--a);display:block;margin-bottom:6px">📊 Descuento al Cliente (GK)</label>
+          <select onchange="applyDescuento(${it.id},this.value)" style="width:100%;background:#060810;border:1px solid #1a2235;border-radius:8px;padding:8px;color:#e8e8f0;font-size:13px">
+            <option value="0">0% (Q 0.00)</option>
+            <option value="20">20% GK (- ${fmt(it.gk*0.2)})</option>
+            <option value="40">40% GK (- ${fmt(it.gk*0.4)})</option>
+            <option value="60">60% GK (- ${fmt(it.gk*0.6)})</option>
+            <option value="80">80% GK (- ${fmt(it.gk*0.8)})</option>
+            <option value="100">100% GK (- ${fmt(it.gk)})</option>
+          </select>
+        </div>`:''}
+      </div>
+      <div><input type="number" min="0" step="0.01" value="${it.precio}" oninput="updateField(${it.id},'precio',this.value)" style="text-align:right" ${it.gratis?'disabled':''}/></div>
+      <div class="total-cell" id="tc-${it.id}">${it.gratis?'SIN COSTO':it.precioConDesc?'<del style="color:#8090a8">'+fmt(it.cant*it.precio)+'</del> <span style="color:#10b981;font-weight:700">'+fmt(it.cant*it.precioConDesc)+'</span>':fmt(it.cant*it.precio)}</div>
+      <button class="del-btn" onclick="removeItem(${it.id})">×</button>`;
+    el.appendChild(r);
+  });
+  calcTotals();
+}
+function calcTotals(){
+  const s=items.reduce((a,i)=>a+(i.gratis?0:i.cant*(i.precioConDesc||i.precio)),0);
+  document.getElementById('sub-disp').textContent=fmt(s);
+  document.getElementById('tot-disp').textContent=fmt(s);
+}
+
+// ===== PDF =====
+function getCotNum(){const d=new Date();return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')}
+// ===== OPCIONES PDF (IMPRIMIR/ENVIAR) =====
+function filtrarYRenderSeguimiento(estado){
+  const filtradas=estado==='todas'?cotizacionesHistorial:cotizacionesHistorial.filter(x=>x.estado===estado);
+  renderSeguimientoCotizaciones(filtradas);
+}
+
+function renderSeguimientoCotizaciones(lista=cotizacionesHistorial){
+  // Estadísticas
+  const total=cotizacionesHistorial.length;
+  const pendientes=cotizacionesHistorial.filter(x=>x.estado==='pendiente').length;
+  const enviadas=cotizacionesHistorial.filter(x=>x.estado==='enviada').length;
+  const aprobadas=cotizacionesHistorial.filter(x=>x.estado==='aprobada').length;
+  
+  const statsHtml=`
+    <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+      <div style="font-size:24px;font-weight:800;color:var(--a)">${total}</div>
+      <div style="font-size:11px;color:#8090a8;margin-top:4px">Total Cotizaciones</div>
+    </div>
+    <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+      <div style="font-size:24px;font-weight:800;color:#fbbf24">${pendientes}</div>
+      <div style="font-size:11px;color:#8090a8;margin-top:4px">Pendientes</div>
+    </div>
+    <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+      <div style="font-size:24px;font-weight:800;color:var(--a)">${enviadas}</div>
+      <div style="font-size:11px;color:#8090a8;margin-top:4px">Enviadas</div>
+    </div>
+    <div style="background:#0a0d1a;padding:12px;border-radius:8px;text-align:center">
+      <div style="font-size:24px;font-weight:800;color:#10b981">${aprobadas}</div>
+      <div style="font-size:11px;color:#8090a8;margin-top:4px">Aprobadas</div>
+    </div>
+  `;
+  
+  const statsEl=document.getElementById('seg-stats');
+  if(statsEl)statsEl.innerHTML=statsHtml;
+  
+  // Tabla
+  const tablaHtml=lista.length===0?
+    '<div style="padding:20px;text-align:center;color:#8090a8">Sin cotizaciones</div>':
+    `<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <tr style="background:#0f1220;sticky:top;z-index:10">
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Fecha</th>
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Cliente</th>
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Proyecto</th>
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Ubicación</th>
+        <th style="padding:10px;text-align:right;border-bottom:1px solid #1a2235">Total</th>
+        <th style="padding:10px;text-align:center;border-bottom:1px solid #1a2235">Estado</th>
+        <th style="padding:10px;text-align:center;border-bottom:1px solid #1a2235">Acciones</th>
+      </tr>
+      ${lista.slice().reverse().map(cot=>`
+        <tr style="border-bottom:1px solid #0f1220">
+          <td style="padding:10px">${cot.fecha}</td>
+          <td style="padding:10px">${cot.cliente}</td>
+          <td style="padding:10px">${cot.proyecto.substring(0,20)}</td>
+          <td style="padding:10px;font-size:10px;color:#8090a8">${cot.ubicacion.substring(0,15)}</td>
+          <td style="padding:10px;text-align:right;color:var(--a);font-weight:700">${cot.total}</td>
+          <td style="padding:10px;text-align:center">
+            <span style="display:inline-block;padding:4px 8px;border-radius:4px;font-size:9px;background:${
+              cot.estado==='aprobada'?'rgba(16,185,129,.2)':
+              cot.estado==='enviada'?'rgba(14,165,200,.2)':
+              cot.estado==='rechazada'?'rgba(239,68,68,.2)':'rgba(251,191,36,.2)'
+            };color:${
+              cot.estado==='aprobada'?'#10b981':
+              cot.estado==='enviada'?'var(--a)':
+              cot.estado==='rechazada'?'#ef4444':'#fbbf24'
+            }">${cot.estado}</span>
+          </td>
+          <td style="padding:10px;text-align:center;display:flex;gap:6px;justify-content:center">
+            <button class="btn btn-sm btn-ghost" onclick="editarEstadoCot('${cot.id}')">✏️</button>
+            <button class="btn btn-sm btn-danger" onclick="if(confirm('¿Eliminar?')){eliminarCot('${cot.id}')}">✕</button>
+          </td>
+        </tr>
+      `).join('')}
+    </table>`;
+  
+  const tablaEl=document.getElementById('seg-tabla');
+  if(tablaEl)tablaEl.innerHTML=tablaHtml;
+}
+
+// Inicializar seguimiento al cargar
+document.addEventListener('DOMContentLoaded',()=>{
+  renderSeguimientoCotizaciones();
+});
+
+function mostrarOpciones(tipo){
+  if(tipo==='cot'){
+    const proyecto=document.getElementById('proyecto').value||'Cotización';
+    const cliente=document.getElementById('cliente').value||'Cliente';
+    const modal=document.createElement('div');
+    modal.className='modal-bg open';
+    modal.innerHTML=`
+      <div class="modal">
+        <h3>📄 Opciones de Cotización</h3>
+        <div style="display:flex;flex-direction:column;gap:10px;margin:20px 0">
+          <button class="btn btn-primary" onclick="generarPDFCot();this.parentElement.parentElement.parentElement.remove()">
+            📄 Generar PDF
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" onclick="this.parentElement.parentElement.parentElement.remove()">Cancelar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click',(e)=>{if(e.target===modal)modal.remove()});
+  }else if(tipo==='hoja'){
+    const orden=document.getElementById('ht-orden').value||'Orden';
+    const cliente=document.getElementById('ht-nombre').value||'Cliente';
+    const modal=document.createElement('div');
+    modal.className='modal-bg open';
+    modal.innerHTML=`
+      <div class="modal">
+        <h3>📄 Opciones de Hoja de Trabajo</h3>
+        <div style="display:flex;flex-direction:column;gap:10px;margin:20px 0">
+          <button class="btn btn-primary" onclick="generarPDFHoja();this.parentElement.parentElement.parentElement.remove()">
+            📄 Generar PDF
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" onclick="this.parentElement.parentElement.parentElement.remove()">Cancelar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click',(e)=>{if(e.target===modal)modal.remove()});
+  }
+}
+
+function enviarWhatsappCot(proyecto,cliente){
+  const whatsappEl=document.getElementById('whatsapp');
+  if(!whatsappEl||!whatsappEl.value){
+    showToast('Agrega numero WhatsApp');
+    return;
+  }
+  
+  let numero=whatsappEl.value.replace(/\D/g,'');
+  if(numero.length<8){showToast('Numero invalido');return}
+  if(!numero.startsWith('502'))numero='502'+numero;
+  
+  showToast('Generando PDF...');
+  
+  // Generar PDF desde el elemento preview actual
+  const pdfElement=document.getElementById('preview');
+  if(!pdfElement){showToast('Genera el PDF primero');return}
+  
+  const pdfId='cot-'+getCotNum()+'-'+Date.now();
+  const FIREBASE_PDF='https://hojas-whatsapp-default-rtdb.firebaseio.com/cotizaciones';
+  
+  // Configurar html2pdf
+  const opt={
+    margin:10,
+    filename:`cotizacion-${getCotNum()}.pdf`,
+    image:{type:'jpeg',quality:0.98},
+    html2canvas:{scale:2},
+    jsPDF:{orientation:'portrait',unit:'mm',format:'letter'}
+  };
+  
+  // Generar PDF
+  html2pdf().set(opt).from(pdfElement).toPdf().output('datauristring').then(pdfDataUri=>{
+    // Guardar en Firebase
+    const base64Pdf=pdfDataUri.split('base64,')[1];
+    
+    fetch(`${FIREBASE_PDF}/${pdfId}.json`,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        id:pdfId,
+        pdf:base64Pdf,
+        cliente:cliente,
+        proyecto:proyecto,
+        fecha:new Date().toISOString()
+      })
+    }).then(res=>{
+      if(res.ok){
+        // PDF guardado
+        guardarCotizacionHistorial('pendiente');
+        showToast('✅ PDF generado');
+      }
+    }).catch(e=>{
+      console.error(e);
+      showToast('Error guardando PDF');
+    });
+  }).catch(e=>{
+    console.error('Error generando PDF:',e);
+    showToast('Error generando PDF');
+  });
+}
+
+function enviarWhatsappHoja(orden,cliente){
+  const telefonoEl=document.getElementById('ht-telefono');
+  if(!telefonoEl||!telefonoEl.value){showToast('⚠️ Agrega teléfono');return}
+  
+  let numero=telefonoEl.value.replace(/\D/g,'');
+  if(numero.length<8){showToast('⚠️ Número inválido');return}
+  if(!numero.startsWith('502'))numero='502'+numero;
+  
+  const msg=`Hola ${cliente},\n\nTe envío la Hoja de Trabajo:\n*${orden}*\n\nCon los detalles del servicio realizado.\n\n📄 Revisar en la app\n\nZento Data 🔒\n+502 4204-3583`;
+  
+  const url=`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`;
+  setTimeout(()=>{
+    window.open(url,'_blank');
+    showToast('✅ Abriendo WhatsApp...');
+  },300);
+}
+
+// ===== HISTORIAL DE COTIZACIONES =====
+let cotizacionesHistorial=JSON.parse(localStorage.getItem('zCotizaciones'))||[];
+
+function guardarCotizacionHistorial(estado='pendiente'){
+  const cliente=document.getElementById('cliente')?.value||'';
+  const proyecto=document.getElementById('proyecto')?.value||'';
+  const ubicacion=document.getElementById('ubicacion')?.value||'';
+  const whatsapp=document.getElementById('whatsapp')?.value||'';
+  const total=document.getElementById('tot-disp')?.innerText||'Q 0.00';
+  
+  if(!cliente||!proyecto)return;
+  
+  const cotizacion={
+    id:uid(),
+    fecha:new Date().toISOString().split('T')[0],
+    hora:new Date().toLocaleTimeString('es-GT'),
+    cliente,
+    proyecto,
+    ubicacion,
+    whatsapp,
+    total,
+    estado,
+    notas:'',
+    itemsCount:document.querySelectorAll('.item-row').length||0
+  };
+  
+  cotizacionesHistorial.push(cotizacion);
+  localStorage.setItem('zCotizaciones',JSON.stringify(cotizacionesHistorial));
+  
+  console.log('✅ Cotización guardada:',cotizacion);
+}
+
+function mostrarHistorialCotizaciones(){
+  const modal=document.createElement('div');
+  modal.className='modal-bg open';
+  
+  const html=`
+    <div class="modal" style="max-width:700px;max-height:90vh">
+      <h3>📋 Historial de Cotizaciones</h3>
+      <div style="margin-bottom:15px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-ghost" onclick="filtrarCotizaciones('todas')">Todas</button>
+        <button class="btn btn-sm btn-ghost" onclick="filtrarCotizaciones('pendiente')">Pendientes</button>
+        <button class="btn btn-sm btn-ghost" onclick="filtrarCotizaciones('enviada')">Enviadas</button>
+        <button class="btn btn-sm btn-ghost" onclick="filtrarCotizaciones('aprobada')">Aprobadas</button>
+      </div>
+      <div id="cot-table-container" style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+        ${cotizacionesHistorial.length===0?'<div style="padding:20px;text-align:center;color:#8090a8">Sin cotizaciones aún</div>':generarTablaHistorial()}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="this.parentElement.parentElement.parentElement.remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  
+  modal.innerHTML=html;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',(e)=>{if(e.target===modal)modal.remove()});
+}
+
+function generarTablaHistorial(){
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="background:#0f1220;sticky:top">
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Fecha</th>
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Cliente</th>
+        <th style="padding:10px;text-align:left;border-bottom:1px solid #1a2235">Proyecto</th>
+        <th style="padding:10px;text-align:right;border-bottom:1px solid #1a2235">Total</th>
+        <th style="padding:10px;text-align:center;border-bottom:1px solid #1a2235">Estado</th>
+        <th style="padding:10px;text-align:center;border-bottom:1px solid #1a2235">Acciones</th>
+      </tr>
+      ${cotizacionesHistorial.slice().reverse().map(cot=>`
+        <tr style="border-bottom:1px solid #0f1220;hover:{background:#0a0d1a}">
+          <td style="padding:10px">${cot.fecha}</td>
+          <td style="padding:10px">${cot.cliente}</td>
+          <td style="padding:10px">${cot.proyecto.substring(0,20)}</td>
+          <td style="padding:10px;text-align:right;color:var(--a)">${cot.total}</td>
+          <td style="padding:10px;text-align:center">
+            <span style="display:inline-block;padding:4px 8px;border-radius:4px;font-size:10px;background:${
+              cot.estado==='aprobada'?'rgba(16,185,129,.2)':
+              cot.estado==='enviada'?'rgba(14,165,200,.2)':'rgba(107,114,128,.2)'
+            };color:${
+              cot.estado==='aprobada'?'#10b981':
+              cot.estado==='enviada'?'var(--a)':'#8090a8'
+            }">${cot.estado}</span>
+          </td>
+          <td style="padding:10px;text-align:center;display:flex;gap:6px;justify-content:center">
+            <button class="btn btn-sm btn-ghost" onclick="editarEstadoCot('${cot.id}')">✏️</button>
+            <button class="btn btn-sm btn-danger" onclick="eliminarCot('${cot.id}')">✕</button>
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
+}
+
+function editarEstadoCot(id){
+  const cot=cotizacionesHistorial.find(x=>x.id===id);
+  if(!cot)return;
+  
+  const modal=document.createElement('div');
+  modal.className='modal-bg open';
+  modal.innerHTML=`
+    <div class="modal">
+      <h3>Actualizar Estado</h3>
+      <div class="form-grid">
+        <div class="full">
+          <label>Estado</label>
+          <select onchange="cot.estado=this.value;this.parentElement.parentElement.previousElementSibling.innerHTML='Estado actualizado a: '+this.value" style="width:100%;padding:10px;border:1px solid #1a2235;border-radius:8px;background:#060810;color:#e8e8f0">
+            <option value="pendiente" ${cot.estado==='pendiente'?'selected':''}>Pendiente</option>
+            <option value="enviada" ${cot.estado==='enviada'?'selected':''}>Enviada</option>
+            <option value="aprobada" ${cot.estado==='aprobada'?'selected':''}>Aprobada</option>
+            <option value="rechazada" ${cot.estado==='rechazada'?'selected':''}>Rechazada</option>
+          </select>
+        </div>
+        <div class="full">
+          <label>Notas</label>
+          <textarea onchange="cot.notas=this.value" style="width:100%;padding:10px;border:1px solid #1a2235;border-radius:8px;background:#060810;color:#e8e8f0;min-height:60px;font-family:inherit">${cot.notas}</textarea>
+        </div>
+        <div style="text-align:center;color:#10b981;font-size:12px">Estado actualizado a: ${cot.estado}</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="this.parentElement.parentElement.parentElement.remove()">Cancelar</button>
+        <button class="btn btn-primary" onclick="cotizacionesHistorial=cotizacionesHistorial.map(x=>x.id===id?cot:x);localStorage.setItem('zCotizaciones',JSON.stringify(cotizacionesHistorial));showToast('✅ Actualizado');this.parentElement.parentElement.parentElement.remove();mostrarHistorialCotizaciones()">Guardar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',(e)=>{if(e.target===modal)modal.remove()});
+}
+
+function eliminarCot(id){
+  if(!confirm('¿Eliminar esta cotización?'))return;
+  cotizacionesHistorial=cotizacionesHistorial.filter(x=>x.id!==id);
+  localStorage.setItem('zCotizaciones',JSON.stringify(cotizacionesHistorial));
+  showToast('✅ Eliminada');
+  mostrarHistorialCotizaciones();
+}
+
+function filtrarCotizaciones(estado){
+  // Implementar después
+}
+
+function generarPDFCot(){
+  const s=SERVICES.find(x=>x.id===selectedSvc);
+  if(!s){showToast('⚠️ Selecciona el tipo de servicio');return}
+  const sub=items.reduce((a,i)=>a+(i.gratis?0:i.cant*i.precio),0);
+  const fv=document.getElementById('fecha').value;
+  const fd=fv?new Date(fv+'T12:00:00').toLocaleDateString('es-GT',{day:'numeric',month:'long',year:'numeric'}):new Date().toLocaleDateString('es-GT',{day:'numeric',month:'long',year:'numeric'});
+  const rows=items.map(i=>`<tr><td>${i.cant}</td><td><span class="tdn">${i.nombre||'—'}</span><span class="tdd">${(i.desc||'').replace(/\n/g,'<br>')}</span></td><td>${i.gratis?'<strong>SIN COSTO</strong>':fmt(i.precio)}</td><td>${i.gratis?'<strong>Q 0.00</strong>':fmt(i.cant*i.precio)}</td></tr>`).join('');
+  document.getElementById('preview').innerHTML=`<div class="pdf">
+    <div class="pdf-hdr">
+      <div class="pdf-logo-area"><img src="logo.png" class="pdf-logo-img" onerror="this.style.display='none'"/><div class="pdf-co"><h1>ZENTO DATA</h1><p>Infraestructura de Red y Seguridad Electrónica</p><p>Erick Barrientos | Servicio en Guatemala</p></div></div>
+      <div class="pdf-cot"><h2>COTIZACIÓN</h2><p>No. ${getCotNum()}</p></div>
+    </div>
+    <div class="pdf-info">
+      <div class="irow"><span class="lbl">CLIENTE:</span><span>${document.getElementById('cliente').value||'—'}</span></div>
+      <div class="irow"><span class="lbl">FECHA:</span><span>${fd}</span></div>
+      <div class="irow"><span class="lbl">PROYECTO:</span><span>${document.getElementById('proyecto').value||'—'}</span></div>
+      <div class="irow"><span class="lbl">VALIDEZ:</span><span>${document.getElementById('validez').value}</span></div>
+      <div class="irow" style="grid-column:1/-1"><span class="lbl">UBICACIÓN:</span><span>${document.getElementById('ubicacion').value||'—'}</span></div>
+    </div>
+    <table class="ptable"><thead><tr><th>Cant.</th><th>Descripción Técnica</th><th style="text-align:right">P. Unit.</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="pdf-tot-row"><div class="pdf-tot-box"><div class="ptrow"><span>Subtotal:</span><span>${fmt(sub)}</span></div><div class="ptrow final"><span>TOTAL:</span><span>${fmt(sub)}</span></div></div></div>
+    <div class="pdf-cl"><h3>Alcance y Cláusulas — ${s.lbl}</h3><ul><li><strong>${s.c1.t}:</strong> ${s.c1.v}</li><li><strong>${s.c2.t}:</strong> ${s.c2.v}</li><li><strong>${s.c3.t}:</strong> ${s.c3.v}</li></ul>
+    <div class="pdf-terms"><strong>Términos Generales:</strong><br>— Forma de pago: ${s.pago}<br>— Tiempo de ejecución: ${s.tiempo}</div></div>
+    <div class="pdf-foot"><div style="font-size:10px;color:#555">Validez: ${document.getElementById('validez').value} a partir de la fecha de emisión.</div><div class="firma-box"><div class="firma-line"></div><strong>Erick Barrientos</strong><br>Zento Data</div></div>
+  </div>`;
+  document.getElementById('preview').style.display='block';
+  
+  setTimeout(()=>{
+    const pdfElement=document.getElementById('preview').querySelector('.pdf');
+    const opt={margin:5,filename:'Cotizacion-'+getCotNum()+'.pdf',image:{type:'jpeg',quality:0.98},html2canvas:{scale:2},jsPDF:{orientation:'portrait',unit:'mm',format:'a4'}};
+    
+    html2pdf().set(opt).from(pdfElement).toPdf().output('datauristring').then(pdfDataUri=>{
+      const pdfBase64=pdfDataUri.split(',')[1];
+      const cotNum=getCotNum();
+      const proyecto=document.getElementById('proyecto').value;
+      const cliente=document.getElementById('cliente').value;
+      const cotId='cot-'+Date.now();
+      
+      // Guardar cotización en localStorage
+      const cotData={
+        id:cotId,
+        cotNum:cotNum,
+        cliente:cliente,
+        proyecto:proyecto,
+        fecha:new Date().toLocaleDateString('es-GT'),
+        total:sub,
+        pdfBase64:pdfBase64,
+        estado:'pendiente'
+      };
+      localStorage.setItem('zento_cot_'+cotId, JSON.stringify(cotData));
+      
+      // Agregar a lista de seguimiento
+      let seguimiento=JSON.parse(localStorage.getItem('zento_seguimiento')||'[]');
+      seguimiento.unshift({
+        id:cotId,
+        cotNum:cotNum,
+        cliente:cliente,
+        proyecto:proyecto,
+        total:fmt(sub),
+        fecha:new Date().toLocaleDateString('es-GT'),
+        estado:'pendiente'
+      });
+      localStorage.setItem('zento_seguimiento',JSON.stringify(seguimiento));
+      
+      // Abrir PDF en nueva ventana
+      window.open('pdf.html?id='+cotId,'_blank');
+      
+      document.getElementById('preview').style.display='none';
+      showToast('✅ PDF generado');
+    }).catch(err=>{
+      console.error('Error generando PDF:',err);
+      showToast('❌ Error al generar PDF');
+      document.getElementById('preview').style.display='none';
+    });
+  },200);
+}
+
+// ===== INIT =====
+document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal()});
+const fbUrl=getFBUrl();
+if(fbUrl){document.getElementById('fb-url-input').value=fbUrl;document.getElementById('fb-setup-box').style.display='none'}
+catalog=localLoad()||DEFAULT_CATALOG;
+// Corregir productos con manoObra incorrecta (que fue restada en lugar de sumada)
+catalog=catalog.map(p=>{if(p.manoObra===undefined)p.manoObra=0;return p});
+localSave(catalog);
+if(!localLoad())localSave(catalog);
+renderServices();
+renderCatalog();
+addItem();
+document.getElementById('fecha').value=new Date().toISOString().split('T')[0];
+
+// ===== MANTENIMIENTO =====
+let mantenimientos=JSON.parse(localStorage.getItem('zMantenimiento'))||[
+  {id:uid(),equipo:'Cámara Hikvision 1',tipo:'Limpieza de lentes',fecha:'2026-07-15',proveedor:'Smart Tec',notas:'Revisar estado general',frecuencia:30,completado:false},
+  {id:uid(),equipo:'Grabador DVR',tipo:'Cambio de HDD',fecha:'2026-06-20',proveedor:'Tech Corner',notas:'Disco duro de 2TB',frecuencia:90,completado:false}
+];
+
+function enableNotifications(){
+  if(!('Notification'in window)){showToast('⚠️ Tu navegador no soporta notificaciones');return}
+  if(Notification.permission==='granted'){showToast('✅ Notificaciones ya activas');return}
+  if(Notification.permission!=='denied'){
+    Notification.requestPermission().then(perm=>{
+      if(perm==='granted'){showToast('✅ Notificaciones activadas');verificarMantenimientos()}
+      else{showToast('⚠️ Notificaciones denegadas')}
+    })
+  }
+}
+
+function verificarMantenimientos(){
+  const hoy=new Date();
+  mantenimientos.forEach(m=>{
+    const fechaMant=new Date(m.fecha);
+    const diasRestantes=Math.floor((fechaMant-hoy)/(1000*60*60*24));
+    if(diasRestantes<=0&&!m.completado){
+      if(Notification.permission==='granted'){
+        new Notification('⚠️ MANTENIMIENTO VENCIDO',{
+          body:`${m.equipo} - ${m.tipo}\nProveedor: ${m.proveedor}`,
+          icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%23ef4444"/><text x="50" y="60" font-size="40" text-anchor="middle" fill="white" font-weight="bold">!</text></svg>',
+          tag:'mant-'+m.id,
+          requireInteraction:true
+        });
+      }
+    }else if(diasRestantes<=7&&diasRestantes>0&&!m.completado){
+      if(Notification.permission==='granted'){
+        new Notification('🔔 MANTENIMIENTO PRÓXIMO',{
+          body:`${m.equipo}\nFalta: ${diasRestantes} días`,
+          icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%23f59e0b"/><text x="50" y="60" font-size="40" text-anchor="middle" fill="white" font-weight="bold">i</text></svg>',
+          tag:'mant-'+m.id
+        });
+      }
+    }
+  })
+}
+
+function openMantenimientoModal(){
+  document.getElementById('mant-equipo').value='';
+  document.getElementById('mant-tipo').value='';
+  document.getElementById('mant-fecha').value='';
+  document.getElementById('mant-proveedor').value='';
+  document.getElementById('mant-notas').value='';
+  document.getElementById('mant-frecuencia').value='30';
+  document.getElementById('mant-modal').classList.add('open');
+}
+
+function cerrarMantModal(){
+  document.getElementById('mant-modal').classList.remove('open');
+}
+
+function guardarMantenimiento(){
+  const equipo=document.getElementById('mant-equipo').value.trim();
+  const tipo=document.getElementById('mant-tipo').value;
+  const fecha=document.getElementById('mant-fecha').value;
+  if(!equipo||!tipo||!fecha){showToast('⚠️ Completa campos requeridos');return}
+  
+  mantenimientos.push({
+    id:uid(),
+    equipo,tipo,fecha,
+    proveedor:document.getElementById('mant-proveedor').value,
+    notas:document.getElementById('mant-notas').value,
+    frecuencia:parseInt(document.getElementById('mant-frecuencia').value)||30,
+    completado:false
+  });
+  localStorage.setItem('zMantenimiento',JSON.stringify(mantenimientos));
+  cerrarMantModal();
+  renderMantenimiento();
+  verificarMantenimientos();
+  showToast('✅ Recordatorio agregado');
+}
+
+function renderMantenimiento(){
+  const hoy=new Date();
+  
+  // Alertas
+  const vencidas=mantenimientos.filter(m=>{
+    const fechaMant=new Date(m.fecha);
+    return fechaMant<=hoy&&!m.completado
+  });
+  const proximas=mantenimientos.filter(m=>{
+    const fechaMant=new Date(m.fecha);
+    const diasRestantes=Math.floor((fechaMant-hoy)/(1000*60*60*24));
+    return diasRestantes<=7&&diasRestantes>0&&!m.completado
+  });
+  
+  let alertasHtml='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">';
+  if(vencidas.length>0){
+    alertasHtml+=`<div style="background:#190a0a;border:1px solid #ef4444;border-radius:10px;padding:16px">
+      <div style="font-weight:700;color:#ef4444;font-size:14px">🚨 ${vencidas.length} VENCIDO${vencidas.length>1?'S':''}</div>
+      <div style="font-size:12px;color:#e8e8f0;margin-top:8px">${vencidas.map(v=>v.equipo).join('<br>')}</div>
+    </div>`;
+  }
+  if(proximas.length>0){
+    alertasHtml+=`<div style="background:#1a1506;border:1px solid #f59e0b;border-radius:10px;padding:16px">
+      <div style="font-weight:700;color:#f59e0b;font-size:14px">⏰ ${proximas.length} PRÓXIMO${proximas.length>1?'S':''}</div>
+      <div style="font-size:12px;color:#e8e8f0;margin-top:8px">${proximas.map(v=>v.equipo+' ('+Math.floor((new Date(v.fecha)-hoy)/(1000*60*60*24))+' días)').join('<br>')}</div>
+    </div>`;
+  }
+  if(vencidas.length===0&&proximas.length===0){
+    alertasHtml+='<div style="color:#8090a8;padding:16px">✓ No hay alertas activas</div>';
+  }
+  alertasHtml+='</div>';
+  
+  document.getElementById('mant-alertas').innerHTML=alertasHtml;
+  
+  // Tabla
+  const html=mantenimientos.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).map(m=>{
+    const fechaMant=new Date(m.fecha);
+    const diasRestantes=Math.floor((fechaMant-hoy)/(1000*60*60*24));
+    let estadoColor='color:#10b981';
+    let estado='✓ Próximo';
+    if(m.completado){estado='✅ Completado';estadoColor='color:#10b981'}
+    else if(diasRestantes<=0){estado='⚠️ VENCIDO';estadoColor='color:#ef4444'}
+    else if(diasRestantes<=7){estado='🔔 '+diasRestantes+' días';estadoColor='color:#f59e0b'}
+    
+    return`<tr>
+      <td style="font-weight:600">${m.equipo}</td>
+      <td style="font-size:12px">${m.tipo}</td>
+      <td>${m.fecha}</td>
+      <td style="font-size:12px">${m.proveedor||'—'}</td>
+      <td style="font-size:11px;color:#8090a8">${m.notas?m.notas.substring(0,30)+(m.notas.length>30?'…':''):'—'}</td>
+      <td style="${estadoColor};font-weight:700">${estado}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-success btn-sm" onclick="completarMant('${m.id}')" style="font-size:11px;padding:4px 8px">✓</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarMant('${m.id}')" style="font-size:11px;padding:4px 8px;margin-left:4px">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+  
+  document.getElementById('mant-tabla').innerHTML=html;
+}
+
+function completarMant(id){
+  const m=mantenimientos.find(x=>x.id===id);
+  if(m){m.completado=true;localStorage.setItem('zMantenimiento',JSON.stringify(mantenimientos));renderMantenimiento();showToast('✅ Mantenimiento marcado como completado')}
+}
+
+function eliminarMant(id){
+  if(!confirm('¿Eliminar este recordatorio?'))return;
+  mantenimientos=mantenimientos.filter(x=>x.id!==id);
+  localStorage.setItem('zMantenimiento',JSON.stringify(mantenimientos));
+  renderMantenimiento();
+  showToast('✓ Recordatorio eliminado');
+}
+
+document.getElementById('mant-modal').addEventListener('click',function(e){if(e.target===this)cerrarMantModal()});
+renderMantenimiento();
+verificarMantenimientos();
+
+// ===== VENTAS =====
+let ventas=JSON.parse(localStorage.getItem('zVentas'))||[{id:uid(),fecha:'2026-06-10',cliente:'Banco',total:8500,inv:5200},{id:uid(),fecha:'2026-05-15',cliente:'Hospital',total:12500,inv:8000}];
+function renderVentas(){const tot=ventas.reduce((a,v)=>a+v.total,0);const inv=ventas.reduce((a,v)=>a+v.inv,0);const gan=tot-inv;const ivaTotal=ventas.filter(v=>v.factura).reduce((a,v)=>a+(v.total*0.05),0);const ivaFacturado=ventas.filter(v=>v.factura).reduce((a,v)=>a+v.total,0);document.getElementById('ven-stats').innerHTML=`<div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Total Vendido</div><div style="font-size:22px;font-weight:800;color:var(--a)">${fmt(tot)}</div></div><div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Invertido</div><div style="font-size:22px;font-weight:800;color:var(--a)">${fmt(inv)}</div></div><div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Ganancia</div><div style="font-size:22px;font-weight:800;color:#10b981">${fmt(gan)}</div></div><div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">IVA Total</div><div style="font-size:22px;font-weight:800;color:#f59e0b">${fmt(ivaTotal)}</div></div>`;document.getElementById('iva-facturado').innerHTML=fmt(ivaFacturado);document.getElementById('iva-total').innerHTML=fmt(ivaTotal);document.getElementById('iva-pagar').innerHTML=fmt(ivaTotal);const meses={};ventas.forEach(v=>{const m=v.fecha.substring(0,7);if(!meses[m])meses[m]={v:0,i:0};meses[m].v+=v.total;meses[m].i+=v.inv});const labels=Object.keys(meses).sort();if(window.vchart)window.vchart.destroy();window.vchart=new Chart(document.getElementById('ventasChart'),{type:'bar',data:{labels,datasets:[{label:'Ingresos',data:labels.map(m=>meses[m].v),backgroundColor:'rgba(14,165,200,.7)'},{label:'Inversión',data:labels.map(m=>meses[m].i),backgroundColor:'rgba(26,79,168,.7)'},{label:'Ganancia',data:labels.map(m=>meses[m].v-meses[m].i),backgroundColor:'rgba(16,185,129,.7)'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}});const topProds={};ventas.forEach(v=>topProds[v.cliente]=(topProds[v.cliente]||0)+1);const topHtml=Object.entries(topProds).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([p,c])=>`<tr><td>${p}</td><td>${c}</td><td>${fmt(ventas.filter(v=>v.cliente===p).reduce((a,v)=>a+v.total,0))}</td><td>${fmt(ventas.filter(v=>v.cliente===p).reduce((a,v)=>a+(v.total-v.inv),0))}</td></tr>`).join('');document.getElementById('top-prod').innerHTML=topHtml;const ventasHtml=ventas.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(v=>{const iva=v.factura?v.total*0.05:0;return`<tr><td>${v.fecha}</td><td>${v.cliente}</td><td>${fmt(v.total)}</td><td>${fmt(v.inv)}</td><td>${fmt(v.total-v.inv)}</td><td>${v.factura?fmt(iva):'-'}</td><td><span style="font-size:11px;padding:3px 8px;background:${v.factura?'rgba(245,158,11,.2);color:#f59e0b':'rgba(16,185,129,.2);color:#10b981'};border-radius:4px;font-weight:700">${v.factura?'✓ IVA':'-'}</span></td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="editVenta('${v.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="delVenta('${v.id}')" style="margin-left:4px">✕</button></td></tr>`}).join('');document.getElementById('ven-tabla').innerHTML=ventasHtml}
+
+let ventaEditandoId=null;
+function editVenta(id){ventaEditandoId=id;const v=ventas.find(x=>x.id===id);if(!v)return;document.getElementById('ven-modal-title').textContent='Editar Venta';document.getElementById('ven-fecha').value=v.fecha;document.getElementById('ven-cliente').value=v.cliente;document.getElementById('ven-total').value=v.total;document.getElementById('ven-inv').value=v.inv;document.getElementById('ven-factura').checked=v.factura||false;document.getElementById('ven-modal').classList.add('open')}
+
+function guardarVenta(){const fecha=document.getElementById('ven-fecha').value;const cliente=document.getElementById('ven-cliente').value;const total=parseFloat(document.getElementById('ven-total').value)||0;const inv=parseFloat(document.getElementById('ven-inv').value)||0;const factura=document.getElementById('ven-factura').checked;if(!fecha||!cliente||!total){showToast('⚠️ Completa campos');return}if(ventaEditandoId){const v=ventas.find(x=>x.id===ventaEditandoId);if(v){v.fecha=fecha;v.cliente=cliente;v.total=total;v.inv=inv;v.factura=factura}}else{ventas.push({id:uid(),fecha,cliente,total,inv,factura})}localStorage.setItem('zVentas',JSON.stringify(ventas));document.getElementById('ven-modal').classList.remove('open');renderVentas();renderPagos();showToast('✅ Guardado')}
+
+function delVenta(id){if(!confirm('¿Eliminar venta?'))return;ventas=ventas.filter(x=>x.id!==id);localStorage.setItem('zVentas',JSON.stringify(ventas));renderVentas();renderPagos();showToast('✓ Eliminada')}
+
+document.getElementById('ven-modal').addEventListener('click',function(e){if(e.target===this)document.getElementById('ven-modal').classList.remove('open')});
+
+// ===== INVENTARIO =====
+let inventario=JSON.parse(localStorage.getItem('zInventario'))||[{id:uid(),nom:'Cámara Hikvision',stock:8,min:5,precio:650},{id:uid(),nom:'Cable Cat6',stock:120,min:50,precio:8.5}];
+function openInvModal(){document.getElementById('inv-modal').classList.add('open')}
+function cerrarInv(){document.getElementById('inv-modal').classList.remove('open')}
+function guardarInv(){const nom=document.getElementById('inv-nom').value;if(!nom)return;inventario.push({id:uid(),nom,stock:parseInt(document.getElementById('inv-stock').value)||0,min:parseInt(document.getElementById('inv-min').value)||5,precio:parseFloat(document.getElementById('inv-precio').value)||0});localStorage.setItem('zInventario',JSON.stringify(inventario));cerrarInv();renderInv();showToast('✅ Equipo agregado')}
+function renderInv(){let tot=0;const html=inventario.map(i=>{const v=i.stock*i.precio;tot+=v;return`<tr><td>${i.nom}</td><td>${i.stock}</td><td>${i.min}</td><td>${fmt(i.precio)}</td><td>${fmt(v)}</td><td style="color:${i.stock<=i.min?'#ef4444':'#10b981'};font-weight:700">${i.stock<=i.min?'⚠️ BAJO':'✓ OK'}</td><td><button class="btn btn-danger btn-sm" onclick="inventario=inventario.filter(x=>x.id!=='${i.id}');localStorage.setItem('zInventario',JSON.stringify(inventario));renderInv()">✕</button></td></tr>`}).join('');document.getElementById('inv-stats').innerHTML=`<div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px;grid-column:1/-1"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Valor Total Inventario</div><div style="font-size:24px;font-weight:800;color:var(--a)">${fmt(tot)}</div></div>`;document.getElementById('inv-tabla').innerHTML=html}
+
+// ===== GASTOS =====
+let gastos=JSON.parse(localStorage.getItem('zGastos'))||[{id:uid(),fecha:'2026-06-12',cat:'Gasolina',monto:250}];
+function openGasModal(){document.getElementById('gas-modal').classList.add('open');document.getElementById('gas-fecha').valueAsDate=new Date()}
+function cerrarGas(){document.getElementById('gas-modal').classList.remove('open')}
+function guardarGas(){const f=document.getElementById('gas-fecha').value;const c=document.getElementById('gas-cat').value;const m=parseFloat(document.getElementById('gas-monto').value)||0;if(!f||!m)return;gastos.push({id:uid(),fecha:f,cat:c,monto:m});localStorage.setItem('zGastos',JSON.stringify(gastos));cerrarGas();renderGastos();showToast('✅ Gasto agregado')}
+function renderGastos(){const tot=gastos.reduce((a,g)=>a+g.monto,0);const porCat={};gastos.forEach(g=>porCat[g.cat]=(porCat[g.cat]||0)+g.monto);document.getElementById('gas-stats').innerHTML=`<div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Total</div><div style="font-size:22px;font-weight:800;color:var(--a)">${fmt(tot)}</div></div>`+Object.entries(porCat).map(([c,m])=>`<div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">${c}</div><div style="font-size:18px;font-weight:800;color:var(--a)">${fmt(m)}</div></div>`).join('');const html=gastos.map(g=>`<tr><td>${g.fecha}</td><td>${g.cat}</td><td>${fmt(g.monto)}</td><td><button class="btn btn-danger btn-sm" onclick="gastos=gastos.filter(x=>x.id!=='${g.id}');localStorage.setItem('zGastos',JSON.stringify(gastos));renderGastos()">✕</button></td></tr>`).join('');document.getElementById('gas-tabla').innerHTML=html}
+
+// ===== PAGOS =====
+let pagos=JSON.parse(localStorage.getItem('zPagos'))||[{id:uid(),cliente:'Banco Agrícola',total:8500,recibido:4250},{id:uid(),cliente:'Hospital',total:12500,recibido:6250}];
+function openPagModal(){document.getElementById('pag-modal').classList.add('open');document.getElementById('pag-cliente').innerHTML='<option>-</option>'+pagos.map(p=>`<option value="${p.id}">${p.cliente}</option>`).join('')}
+function cerrarPag(){document.getElementById('pag-modal').classList.remove('open')}
+function guardarPag(){const id=document.getElementById('pag-cliente').value;const m=parseFloat(document.getElementById('pag-monto').value)||0;if(!id||!m)return;const p=pagos.find(x=>x.id===id);if(p)p.recibido+=m;localStorage.setItem('zPagos',JSON.stringify(pagos));cerrarPag();renderPagos();showToast('✅ Pago registrado')}
+function renderPagos(){let fact=0,rec=0,pend=0;const html=pagos.map(p=>{fact+=p.total;rec+=p.recibido;pend+=p.total-p.recibido;return`<tr><td>${p.cliente}</td><td>${fmt(p.total)}</td><td>${fmt(p.recibido)}</td><td>${fmt(p.total-p.recibido)}</td><td>${(p.recibido/p.total*100).toFixed(0)}%</td></tr>`}).join('');document.getElementById('pag-stats').innerHTML=`<div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Facturable</div><div style="font-size:22px;font-weight:800;color:var(--a)">${fmt(fact)}</div></div><div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Recibido</div><div style="font-size:22px;font-weight:800;color:#10b981">${fmt(rec)}</div></div><div style="background:#0a0d1a;border:1px solid #1a2235;border-radius:10px;padding:16px"><div style="font-size:10px;color:#8090a8;text-transform:uppercase;margin-bottom:8px">Pendiente</div><div style="font-size:22px;font-weight:800;color:#f59e0b">${fmt(pend)}</div></div>`;document.getElementById('pag-tabla').innerHTML=html}
+
+document.getElementById('inv-modal').addEventListener('click',function(e){if(e.target===this)cerrarInv()});
+document.getElementById('gas-modal').addEventListener('click',function(e){if(e.target===this)cerrarGas()});
+document.getElementById('pag-modal').addEventListener('click',function(e){if(e.target===this)cerrarPag()});
+
+renderVentas();renderInv();renderGastos();renderPagos();
+
+// ===== FIREBASE HOJAS DE TRABAJO =====
+const FIREBASE_HOJAS='https://hojas-whatsapp-default-rtdb.firebaseio.com/hojas';
+let hojasFirebase=[];
+let filtroOrden='';
+
+async function cargarHojasFirebase(){
+  try{
+    console.log('Cargando hojas desde:', FIREBASE_HOJAS);
+    const res=await fetch(FIREBASE_HOJAS+'.json');
+    console.log('Response status:', res.status);
+    
+    if(res.ok){
+      const data=await res.json();
+      console.log('Datos recibidos:', data);
+      hojasFirebase=data?Object.entries(data).map(([key,val])=>({...val,key})):[];
+      console.log('Hojas procesadas:', hojasFirebase);
+      renderHistorialFirebase();
+    }else{
+      console.error('Firebase error:',res.status,res.statusText);
+      hojasFirebase=[];
+      renderHistorialFirebase();
+    }
+  }catch(e){
+    console.error('Error cargando hojas:',e.message);
+    hojasFirebase=[];
+    renderHistorialFirebase();
+  }
+}
+
+async function guardarHojaFirebase(hoja){
+  try{
+    const res=await fetch(FIREBASE_HOJAS+'.json',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(hoja)});
+    if(res.ok){
+      showToast('✅ Hoja guardada en Firebase');
+      setTimeout(()=>cargarHojasFirebase(),500);
+    }else{
+      showToast('⚠️ Error Firebase: '+res.status);
+      console.error('Firebase error:',res.status,res.statusText);
+    }
+  }catch(e){
+    showToast('⚠️ Error: Verifica la URL de Firebase');
+    console.error('Error Firebase:',e.message);
+  }
+}
+
+async function eliminarHojaFirebase(key){
+  if(!confirm('¿Eliminar hoja?'))return;
+  try{
+    await fetch(FIREBASE_HOJAS+'/'+key+'.json',{method:'DELETE'});
+    showToast('✓ Eliminada');
+    cargarHojasFirebase()
+  }catch(e){console.error(e)}
+}
+
+function renderHistorialFirebase(){
+  const filtradas=filtroOrden?hojasFirebase.filter(h=>h.orden.includes(filtroOrden)):hojasFirebase;
+  const html=filtradas.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,10).map((h,i)=>`
+    <tr>
+      <td><strong>${h.orden}</strong></td>
+      <td>${h.cliente}</td>
+      <td>${h.fecha}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick="verPDFHojaFirebase('${h.pdfBase64}')">👁️ Ver</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarHojaFirebase('${h.key}')" style="margin-left:4px">✕</button>
+      </td>
+    </tr>`).join('');
+  const tabla=document.getElementById('ht-tabla-firebase');
+  if(tabla)tabla.innerHTML=html||'<tr><td colspan="4" style="text-align:center;color:#8090a8">No hay hojas guardadas</td></tr>'
+}
+
+function verPDFHojaFirebase(pdfBase64){
+  try{
+    // Decodificar base64
+    const binaryString=atob(pdfBase64);
+    const bytes=new Uint8Array(binaryString.length);
+    for(let i=0;i<binaryString.length;i++){
+      bytes[i]=binaryString.charCodeAt(i);
+    }
+    const decoder=new TextDecoder();
+    const html=decoder.decode(bytes);
+    
+    // Abrir en nueva ventana
+    const win=window.open();
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    setTimeout(()=>{win.focus()},500);
+  }catch(e){
+    showToast('❌ Error al abrir PDF: '+e.message);
+    console.error('Error decoding:',e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded',cargarHojasFirebase);
+
+// ===== HOJA DE TRABAJO =====
+let equiposHT=[];let patronSeleccionado=[];let hojasTrabajo=JSON.parse(localStorage.getItem('zHojasTrabajo'))||[];
+
+function agregarEquipoHT(){const desc=prompt('Descripción equipo:');const marca=prompt('Marca:');const spec=prompt('Especificación técnica:');if(desc&&marca){equiposHT.push({id:uid(),desc,marca,spec});renderEquiposHT()}}
+
+function renderEquiposHT(){const html=equiposHT.map(e=>`<tr><td>${e.desc}</td><td>${e.marca}</td><td>${e.spec||'—'}</td><td><button class="btn btn-danger btn-sm" onclick="equiposHT=equiposHT.filter(x=>x.id!=='${e.id}');renderEquiposHT()">✕</button></td></tr>`).join('');document.getElementById('ht-equipos').innerHTML=html}
+
+function seleccionarPatron(num){
+  if(!patronSeleccionado.includes(num)){
+    patronSeleccionado.push(num);
+    // Update desktop button
+    const btnD=document.getElementById('btn-'+num);
+    if(btnD){btnD.style.background='var(--a)';btnD.style.color='#000'}
+    // Update mobile button
+    const btnM=document.getElementById('btn-m-'+num);
+    if(btnM){btnM.style.background='var(--a)';btnM.style.color='#000'}
+    // Update both sequences
+    const seq='Secuencia: '+patronSeleccionado.join(' → ');
+    const seqD=document.getElementById('ht-patron-sequence');
+    const seqM=document.getElementById('ht-patron-sequence-mobile');
+    if(seqD)seqD.textContent=seq;
+    if(seqM)seqM.textContent=seq;
+  }
+}
+
+function limpiarPatron(){
+  patronSeleccionado=[];
+  document.querySelectorAll('#ht-patron-selector button, #ht-patron-selector-mobile button').forEach(b=>{
+    b.style.background='#060810';
+    b.style.color='#e8e8f0'
+  });
+  const seq='Secuencia: —';
+  const seqD=document.getElementById('ht-patron-sequence');
+  const seqM=document.getElementById('ht-patron-sequence-mobile');
+  if(seqD)seqD.textContent=seq;
+  if(seqM)seqM.textContent=seq;
+}
+
+function generarPDFHoja(){
+  const orden=document.getElementById('ht-orden').value||'N/A';const cliente=document.getElementById('ht-nombre').value||'Cliente';if(!cliente){showToast('⚠️ Completa nombre del cliente');return}
+  const fecha=document.getElementById('ht-fecha').value||new Date().toISOString().split('T')[0];
+  const hoja={id:uid(),orden,cliente,fecha,direccion:document.getElementById('ht-direccion').value,telefono:document.getElementById('ht-telefono').value,email:document.getElementById('ht-email').value,tecnico:document.getElementById('ht-tecnico').value,servicios:Array.from(document.querySelectorAll('.ht-servicio:checked')).map(c=>c.value),desc:document.getElementById('ht-desc').value,equipos:equiposHT,grabador:{usuario:document.getElementById('ht-grabador-usuario').value,pass:document.getElementById('ht-grabador-pass').value,ip:document.getElementById('ht-grabador-ip').value},camara:{ip:document.getElementById('ht-camara-ip').value,usuario:document.getElementById('ht-camara-usuario').value,pass:document.getElementById('ht-camara-pass').value},patron:patronSeleccionado,obs:document.getElementById('ht-obs').value};
+  
+  const html=`<html style="font-family:Arial,sans-serif;background:#fff;color:#000;padding:20px"><body><div style="max-width:800px;margin:0 auto">
+    <div style="border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:20px;text-align:center">
+      <h1 style="margin:0;color:#1a4fa8">Zento Data</h1>
+      <p style="margin:0;font-size:12px;color:#666">Teléfono: 56970851 | Correo: zentodata@gmail.com | Guatemala</p>
+      <h2 style="margin:10px 0 0 0;font-size:16px">HOJA DE SERVICIO / TRABAJO REALIZADO</h2>
+    </div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;font-size:13px">
+      <div><strong>Orden N°:</strong> ${orden}<br><strong>Fecha:</strong> ${fecha}</div>
+      <div><strong>Cliente:</strong> ${cliente}<br><strong>Dirección:</strong> ${hoja.direccion}<br><strong>Teléfono:</strong> ${hoja.telefono}</div>
+    </div>
+    
+    <div style="margin-bottom:20px">
+      <h3 style="background:#f0f0f0;padding:10px;margin:0 0 10px 0;font-size:14px">SERVICIOS REALIZADOS</h3>
+      <p style="margin:0;font-size:13px">${hoja.servicios.length>0?hoja.servicios.join(', '):'—'}</p>
+    </div>
+    
+    <div style="margin-bottom:20px">
+      <h3 style="background:#f0f0f0;padding:10px;margin:0 0 10px 0;font-size:14px">DESCRIPCIÓN DEL TRABAJO</h3>
+      <p style="margin:0;font-size:13px;white-space:pre-wrap">${hoja.desc||'—'}</p>
+    </div>
+    
+    <div style="margin-bottom:20px">
+      <h3 style="background:#f0f0f0;padding:10px;margin:0 0 10px 0;font-size:14px">EQUIPOS INSTALADOS</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#f0f0f0"><th style="border:1px solid #999;padding:8px;text-align:left">DESCRIPCIÓN</th><th style="border:1px solid #999;padding:8px;text-align:left">MARCA</th><th style="border:1px solid #999;padding:8px;text-align:left">ESPECIFICACIÓN</th></tr></thead>
+        <tbody>${hoja.equipos.length>0?hoja.equipos.map(e=>`<tr><td style="border:1px solid #ddd;padding:8px">${e.desc}</td><td style="border:1px solid #ddd;padding:8px">${e.marca}</td><td style="border:1px solid #ddd;padding:8px">${e.spec||'—'}</td></tr>`).join(''):'<tr><td colspan="3" style="border:1px solid #ddd;padding:8px">—</td></tr>'}</tbody>
+      </table>
+    </div>
+    
+    <div style="margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:12px">
+      <div>
+        <h4 style="background:#f0f0f0;padding:8px;margin:0 0 10px 0">GRABADOR (NVR/DVR)</h4>
+        <p style="margin:0"><strong>Usuario:</strong> ${hoja.grabador.usuario||'—'}<br><strong>Contraseña:</strong> ${hoja.grabador.pass?'*'.repeat(hoja.grabador.pass.length):'—'}<br><strong>IP:</strong> ${hoja.grabador.ip||'—'}</p>
+      </div>
+      <div>
+        <h4 style="background:#f0f0f0;padding:8px;margin:0 0 10px 0">CÁMARA IP</h4>
+        <p style="margin:0"><strong>IP:</strong> ${hoja.camara.ip||'—'}<br><strong>Usuario:</strong> ${hoja.camara.usuario||'—'}<br><strong>Contraseña:</strong> ${hoja.camara.pass?'*'.repeat(hoja.camara.pass.length):'—'}</p>
+      </div>
+    </div>
+    
+    ${hoja.patron.length>0?`<div style="margin-bottom:20px;padding:15px;background:#f9f9f9;border:1px solid #ddd;border-radius:5px">
+      <h4 style="margin:0 0 10px 0;font-size:12px"><strong>PATRÓN GRÁFICO DE DESBLOQUEO</strong></h4>
+      <p style="margin:0;font-size:11px">Secuencia: ${hoja.patron.join(' → ')}</p>
+      <div style="display:grid;grid-template-columns:repeat(3,40px);gap:5px;margin-top:10px">
+        ${[1,2,3,4,5,6,7,8,9].map(n=>`<div style="width:40px;height:40px;border:1px solid #999;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;background:${hoja.patron.includes(n)?'#1a4fa8;color:#fff':'#f0f0f0'}">${n}</div>`).join('')}
+      </div>
+    </div>`:''}
+    
+    <div style="margin-bottom:20px">
+      <h3 style="background:#f0f0f0;padding:10px;margin:0 0 10px 0;font-size:14px">OBSERVACIONES</h3>
+      <p style="margin:0;font-size:13px;white-space:pre-wrap">${hoja.obs||'Garantía de equipos conforme a especificación del fabricante.'}</p>
+    </div>
+    
+    <div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:40px;font-size:13px">
+      <div><p style="margin:0;border-top:1px solid #000;padding-top:20px"><strong>Firma Técnico</strong><br>${hoja.tecnico}</p></div>
+      <div><p style="margin:0;border-top:1px solid #000;padding-top:20px"><strong>Firma Cliente</strong><br>Aceptación y conformidad</p></div>
+    </div>
+    
+    <p style="margin-top:20px;text-align:center;font-size:11px;color:#666">Zento Data - Integración Profesional en Redes y Seguridad Electrónica</p>
+  </div></body></html>`;
+  
+  const ventana=window.open();
+  ventana.document.open();
+  ventana.document.write(html);
+  ventana.document.close();
+  setTimeout(()=>{ventana.focus();ventana.print()},500);
+  
+  // Guardar en localStorage (backup local)
+  hojasTrabajo.push(hoja);localStorage.setItem('zHojasTrabajo',JSON.stringify(hojasTrabajo));renderHistorialHT();
+  
+  // Guardar en Firebase con PDF (manejar caracteres especiales)
+  try{
+    const encoder=new TextEncoder();
+    const data=encoder.encode(html);
+    let pdfBase64='';
+    for(let i=0;i<data.length;i++){
+      pdfBase64+=String.fromCharCode(data[i]);
+    }
+    const pdfBase64Final=btoa(pdfBase64);
+    const hojaFirebase={key:uid(),orden,cliente,fecha,pdfBase64:pdfBase64Final,timestamp:new Date().toISOString()};
+    guardarHojaFirebase(hojaFirebase);
+    showToast('✅ Guardado en Firebase');
+  }catch(e){
+    showToast('⚠️ Error al guardar PDF: '+e.message);
+    console.error('Error encoding:',e);
+  }
+}
+
+function guardarHojaLocal(){const orden=document.getElementById('ht-orden').value||'N/A';const cliente=document.getElementById('ht-nombre').value;if(!cliente){showToast('⚠️ Completa nombre del cliente');return}const hoja={id:uid(),orden,cliente,fecha:document.getElementById('ht-fecha').value||new Date().toISOString().split('T')[0]};hojasTrabajo.push(hoja);localStorage.setItem('zHojasTrabajo',JSON.stringify(hojasTrabajo));renderHistorialHT();showToast('✅ Hoja guardada')}
+
+function renderHistorialHT(){const html=hojasTrabajo.slice(-10).reverse().map(h=>`<tr><td>${h.orden}</td><td>${h.cliente}</td><td>${h.fecha}</td><td><button class="btn btn-ghost btn-sm" onclick="alert('Orden: ${h.orden}\\nCliente: ${h.cliente}\\nFecha: ${h.fecha}')">👁️ Ver</button> <button class="btn btn-danger btn-sm" onclick="hojasTrabajo=hojasTrabajo.filter(x=>x.id!=='${h.id}');localStorage.setItem('zHojasTrabajo',JSON.stringify(hojasTrabajo));renderHistorialHT()">✕</button></td></tr>`).join('');document.getElementById('ht-historial').innerHTML=html||'<tr><td colspan="4" style="text-align:center;color:#8090a8">Sin hojas guardadas</td></tr>'}
+
+function limpiarFormularioHT(){equiposHT=[];limpiarPatron();document.querySelectorAll('#ht-nombre,#ht-direccion,#ht-telefono,#ht-email,#ht-orden,#ht-fecha,#ht-tecnico,#ht-desc,#ht-grabador-usuario,#ht-grabador-pass,#ht-grabador-ip,#ht-camara-ip,#ht-camara-usuario,#ht-camara-pass,#ht-obs').forEach(e=>e.value='');document.querySelectorAll('.ht-servicio').forEach(e=>e.checked=false);renderEquiposHT();showToast('🔄 Formulario limpiado')}
+
+document.getElementById('ht-fecha').valueAsDate=new Date();
+renderHistorialHT();
+
+// ===== FULLSCREEN INMERSIVO MOBILE =====
+function enableFullscreenMode(){
+  if(window.innerWidth<=768){
+    // Ocultar barra de direcciones en Chrome Mobile
+    window.scrollTo(0,1);
+    
+    // Usar fullscreen API si está disponible
+    if(document.documentElement.requestFullscreen){
+      document.documentElement.requestFullscreen().catch(err=>{});
+    }else if(document.documentElement.webkitRequestFullscreen){
+      document.documentElement.webkitRequestFullscreen();
+    }
+    
+    // Forzar viewport immersive
+    document.documentElement.style.height='100vh';
+    document.body.style.height='100vh';
+    document.body.style.overflow='hidden';
+    
+    // Listener para mantener fullscreen en scroll
+    window.addEventListener('scroll',()=>{
+      if(window.scrollY===0)window.scrollTo(0,1);
+    });
+  }
+}
+
+// Ejecutar al cargar
+window.addEventListener('load',enableFullscreenMode);
+window.addEventListener('orientationchange',enableFullscreenMode);
+
+// Re-ejecutar cada vez que cambia el tab
+const originalShowTab=window.showTab;
+window.showTab=function(tabName,element){
+  originalShowTab(tabName,element);
+  setTimeout(enableFullscreenMode,100);
+};
+
+// ===== REGISTRO DE SERVICE WORKER (PWA) =====
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg=>{
+        console.log('Service Worker registrado:',reg);
+      })
+      .catch(err=>{
+        console.error('Error registrando SW:',err);
+      });
+  });
+}
+
+// Detectar actualizaciones del Service Worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    console.log('Aplicación actualizada. Recarga para ver cambios.');
+  });
+}
+
+// Permitir instalación como PWA (cartel "Instalar")
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt',(e)=>{
+  e.preventDefault();
+  deferredPrompt=e;
+  // Aquí puedes mostrar un botón personalizado para instalar
+  console.log('PWA lista para instalar');
+});
+
+window.addEventListener('appinstalled',()=>{
+  console.log('App instalada exitosamente');
+  deferredPrompt=null;
+});
+
+</script>
+</body>
+</html>
