@@ -377,9 +377,6 @@ function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (u: User) => 
             Ingresar al sistema
           </button>
         </form>
-        <div className="mt-3 p-3 bg-[#0b0e1a] border border-[#1a2235] rounded-xl text-xs text-[#8090a8]">
-          <strong className="text-[#0ea5c8]">Demo admin:</strong> admin@zentodata.com / zento2024
-        </div>
       </motion.div>
     </div>
   );
@@ -1858,9 +1855,46 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
   );
 }
 
+// ─── PWA SETUP ───────────────────────────────────────────────────────────────
+
+function usePWA() {
+  useEffect(() => {
+    // Register service worker
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+    // Inject manifest link if missing
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const link = document.createElement("link");
+      link.rel = "manifest";
+      link.href = "/manifest.json";
+      document.head.appendChild(link);
+    }
+    // Set theme-color meta
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      const meta = document.createElement("meta");
+      meta.name = "theme-color";
+      meta.content = "#0ea5c8";
+      document.head.appendChild(meta);
+    }
+    // Apple PWA meta tags
+    const appleCapable = document.createElement("meta");
+    appleCapable.name = "apple-mobile-web-app-capable";
+    appleCapable.content = "yes";
+    if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]'))
+      document.head.appendChild(appleCapable);
+    const appleTitle = document.createElement("meta");
+    appleTitle.name = "apple-mobile-web-app-title";
+    appleTitle.content = "ZentoData";
+    if (!document.querySelector('meta[name="apple-mobile-web-app-title"]'))
+      document.head.appendChild(appleTitle);
+  }, []);
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 export default function App() {
+  usePWA();
   const [phase, setPhase] = useState<"splash" | "login" | "app">("splash");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState("cotizador");
