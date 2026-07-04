@@ -8,8 +8,27 @@
       <title>Minimalista Zento Data App</title>
       <meta name="description" content="Zento Data offers a minimalist web application that provides real-time notifications and user management features, enhancing operational efficiency for businesses." />
       <meta name="robots" content="noindex, nofollow" />
+
+      <!-- PWA: manifest -->
+      <link rel="manifest" href="/site.webmanifest" />
+      <meta name="theme-color" content="#ffffff" />
+
+      <!-- PWA: icons -->
+      <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+      <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+      <link rel="shortcut icon" href="/favicon.ico" />
+      <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
       <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
-      
+
+      <!-- PWA: service worker registration -->
+      <script>
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js');
+          });
+        }
+      </script>
     </head>
 
     <body>

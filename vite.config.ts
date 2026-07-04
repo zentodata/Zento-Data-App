@@ -17,6 +17,12 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  // GitHub Pages project sites are served from a subpath
+  // (https://<user>.github.io/<REPO_NAME>/), so Vite needs to know the
+  // base path to correctly prefix every asset URL (including the ones
+  // in index.html, like the manifest and icon links below).
+  // Replace REPO_NAME with your actual GitHub repository name.
+  base: '/REPO_NAME/',
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
