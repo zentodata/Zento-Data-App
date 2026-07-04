@@ -10,22 +10,22 @@
       <meta name="robots" content="noindex, nofollow" />
 
       <!-- PWA: manifest -->
-      <link rel="manifest" href="/site.webmanifest" />
-      <meta name="theme-color" content="#ffffff" />
+      <link rel="manifest" href="/manifest.json" />
+      <meta name="theme-color" content="#0ea5c8" />
 
-      <!-- PWA: icons -->
-      <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-      <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
-      <link rel="shortcut icon" href="/favicon.ico" />
-      <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+      <!-- PWA: íconos reales del repo -->
+      <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+      <link rel="icon" type="image/png" sizes="96x96" href="/icons/favicon-96x96.png" />
+      <link rel="shortcut icon" href="/icons/favicon.ico" />
+      <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
 
       <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
 
-      <!-- PWA: service worker registration -->
-      <script>
+      <!-- PWA: registro del service worker (usa BASE_URL para respetar el base de vite.config.ts) -->
+      <script type="module">
         if ('serviceWorker' in navigator) {
-          window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/sw.js');
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js');
           });
         }
       </script>

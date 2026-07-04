@@ -17,12 +17,12 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
-  // GitHub Pages project sites are served from a subpath
-  // (https://<user>.github.io/<REPO_NAME>/), so Vite needs to know the
-  // base path to correctly prefix every asset URL (including the ones
-  // in index.html, like the manifest and icon links below).
-  // Replace REPO_NAME with your actual GitHub repository name.
-  base: '/REPO_NAME/',
+  // GitHub Pages sirve los proyectos desde un subpath
+  // (https://<usuario>.github.io/Zento-Data-App/), por lo que Vite
+  // necesita conocer ese "base" para anteponerlo a cada URL de asset,
+  // incluidas las de index.html (manifest, íconos, sw.js).
+  // Si el repo cambia de nombre, actualiza este valor.
+  base: '/Zento-Data-App/',
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
