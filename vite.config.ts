@@ -17,12 +17,9 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
-  // GitHub Pages sirve los proyectos desde un subpath
-  // (https://<usuario>.github.io/Zento-Data-App/), por lo que Vite
-  // necesita conocer ese "base" para anteponerlo a cada URL de asset,
-  // incluidas las de index.html (manifest, íconos, sw.js).
-  // Si el repo cambia de nombre, actualiza este valor.
-  base: '/Zento-Data-App/',
+  // Vercel sirve el sitio desde la raíz del dominio (zento-data-app.vercel.app/),
+  // NO desde un subpath — a diferencia de GitHub Pages. Por eso no se define
+  // "base" aquí (el default de Vite ya es '/').
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if

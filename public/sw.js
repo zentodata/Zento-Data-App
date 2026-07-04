@@ -1,5 +1,5 @@
 // Zento Data Service Worker v1.0 (JavaScript puro, listo para producción)
-const BASE = '/Zento-Data-App/';
+const BASE = '/';
 const CACHE_NAME = 'zentodata-v1';
 const STATIC_ASSETS = [BASE, BASE + 'index.html', BASE + 'manifest.json'];
 
