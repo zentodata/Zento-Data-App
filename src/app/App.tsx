@@ -359,7 +359,7 @@ function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (u: User) => 
           <p className="text-[#8090a8] text-xs mt-1 tracking-widest uppercase">Ingresa tus credenciales</p>
         </div>
         <form onSubmit={submit} className="bg-[#0b0e1a] border border-[#1a2235] rounded-2xl p-6 space-y-4">
-          <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@zentodata.com" required />
+          <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@empresa.com" required />
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider">Contraseña</label>
             <div className="relative">
@@ -685,15 +685,24 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
             <input type="number" min="1" value={item.qty} onChange={e => updItem(item.id, "qty", +e.target.value)}
               className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-center focus:outline-none focus:border-[#0ea5c8] w-full" />
             <div className="flex flex-col gap-1">
-              <div className="flex gap-1">
-                <input value={item.nombre} onChange={e => updItem(item.id, "nombre", e.target.value)} placeholder="Nombre del item"
-                  className="flex-1 bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
-                <select onChange={e => fromCatalog(e.target.value, item.id)} defaultValue=""
-                  className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#8090a8] focus:outline-none focus:border-[#0ea5c8]">
-                  <option value="">📦 Cat.</option>
-                  {catalog.map(p => <option key={p.id} value={p.id}>{p.nombre.substring(0, 25)}</option>)}
-                </select>
-              </div>
+              <select
+                value={catalog.find(p => p.nombre === item.nombre)?.id || ""}
+                onChange={e => {
+                  if (e.target.value) {
+                    fromCatalog(e.target.value, item.id);
+                  } else {
+                    updItem(item.id, "nombre", "");
+                    updItem(item.id, "desc", "");
+                    updItem(item.id, "precio", 0);
+                  }
+                }}
+                className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]"
+              >
+                <option value="">— Seleccionar producto del catálogo —</option>
+                {catalog.map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre}{p.marca ? ` · ${p.marca}` : ""}</option>
+                ))}
+              </select>
               <input value={item.desc} onChange={e => updItem(item.id, "desc", e.target.value)} placeholder="Descripción (opcional)"
                 className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#8090a8] focus:outline-none focus:border-[#0ea5c8]" />
             </div>

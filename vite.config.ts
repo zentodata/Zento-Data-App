@@ -17,9 +17,6 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
-  // Vercel sirve el sitio desde la raíz del dominio (zento-data-app.vercel.app/),
-  // NO desde un subpath — a diferencia de GitHub Pages. Por eso no se define
-  // "base" aquí (el default de Vite ya es '/').
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
