@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
+import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from "recharts";
@@ -121,7 +122,7 @@ const SERVICES = [
   { id: "cambio_dvr", ico: "🔄", lbl: "Cambio de Grabador" },
 ];
 
-const CATS = ["Combos","CCTV y Videovigilancia","Hikvision","Dahua","ZKTeco","IP","Análogo","Control de Acceso","Redes y Cableado","Soporte Informático","Software y Licencias","Mano de Obra","Accesorios"];
+const CATS = ["Combos","CCTV y Videovigilancia","Hikvision","Dahua","ZKTeco","IP","Análogo","Control de Acceso","Redes","Redes y Cableado","Soporte Informático","Software y Licencias","Mano de Obra","Accesorios"];
 const GAS_CATS = ["Gasolina","Herramientas","Repuestos","Transporte","Alimentación","Material","Otro"];
 const PROVEEDORES = ["Smart Tec","Tech Corner","Box Security","Conectividad","Giganet","Viva Original","3S Simple Smart Solutions","Interno"];
 const MARCAS = ["Hikvision","Dahua","ZKTeco","HiLook","WD (Western Digital)","Seagate","Samsung","Kingston","ESET","Kaspersky","SpryWire"];
@@ -578,6 +579,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
   const [showHist, setShowHist] = useState(false);
   const [fbUrl, setFbUrl] = useState(ls("fb_url", ""));
   const [showFb, setShowFb] = useState(!ls("fb_url", ""));
+  const [pdfCot, setPdfCot] = useState<Cotizacion | null>(null);
 
   const subtotal = items.reduce((a, i) => a + (i.qty * i.precio), 0);
   const total = subtotal;
@@ -585,14 +587,12 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
   function addItem() { setItems([...items, { id: uid(), qty: 1, nombre: "", desc: "", precio: 0 }]); }
   function delItem(id: string) { setItems(items.filter(i => i.id !== id)); }
   function updItem(id: string, k: keyof CotItem, v: string | number) {
-    setItems(items.map(i => i.id === id ? { ...i, [k]: v } : i));
+    setItems(prev => prev.map(i => i.id === id ? { ...i, [k]: v } : i));
   }
   function fromCatalog(id: string, itemId: string) {
     const p = catalog.find(x => x.id === id);
     if (!p) return;
-    updItem(itemId, "nombre", p.nombre);
-    updItem(itemId, "desc", p.desc);
-    updItem(itemId, "precio", p.precio);
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, nombre: p.nombre, desc: p.desc, precio: p.precio } : i));
   }
 
   function guardar() {
@@ -608,6 +608,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
     lsSet("zCotizaciones", next);
     addNotif({ tipo: "success", titulo: "Nueva cotización creada", mensaje: `${cot.id} — ${form.cliente} por ${fmt(total)}`, modulo: "cotizador" });
     showToast("✅ Cotización guardada en el historial");
+    setPdfCot(cot);
   }
 
   function checkZona(v: string) {
@@ -681,10 +682,10 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
           ))}
         </div>
         {items.map(item => (
-          <div key={item.id} className="grid grid-cols-[50px_1fr_100px_90px_30px] gap-1.5 items-start py-2 border-b border-[#0f1220]">
+          <div key={item.id} className="grid grid-cols-[50px_1fr_100px_90px_30px] gap-1.5 items-start py-2 border-b border-[#0f1220] min-w-0">
             <input type="number" min="1" value={item.qty} onChange={e => updItem(item.id, "qty", +e.target.value)}
-              className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-center focus:outline-none focus:border-[#0ea5c8] w-full" />
-            <div className="flex flex-col gap-1">
+              className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-center focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
+            <div className="flex flex-col gap-1 min-w-0">
               <select
                 value={catalog.find(p => p.nombre === item.nombre)?.id || ""}
                 onChange={e => {
@@ -696,7 +697,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
                     updItem(item.id, "precio", 0);
                   }
                 }}
-                className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]"
+                className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0"
               >
                 <option value="">— Seleccionar producto del catálogo —</option>
                 {catalog.map(p => (
@@ -704,11 +705,11 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
                 ))}
               </select>
               <input value={item.desc} onChange={e => updItem(item.id, "desc", e.target.value)} placeholder="Descripción (opcional)"
-                className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#8090a8] focus:outline-none focus:border-[#0ea5c8]" />
+                className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#8090a8] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
             </div>
             <input type="number" min="0" step="0.01" value={item.precio} onChange={e => updItem(item.id, "precio", +e.target.value)}
-              className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-right focus:outline-none focus:border-[#0ea5c8] w-full" />
-            <div className="text-right text-sm font-bold text-white pt-1.5">{fmt(item.qty * item.precio)}</div>
+              className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-right focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
+            <div className="text-right text-sm font-bold text-white pt-1.5 truncate">{fmt(item.qty * item.precio)}</div>
             <button onClick={() => delItem(item.id)} className="text-red-400 hover:text-red-300 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 mt-1">
               <X size={14} />
             </button>
@@ -729,14 +730,47 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
         {cotizaciones.length === 0 ? <EmptyState msg="Sin cotizaciones guardadas" /> : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {cotizaciones.map(c => (
-              <div key={c.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235]">
-                <div>
-                  <div className="text-sm font-semibold text-white">{c.id} — {c.cliente}</div>
+              <div key={c.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235] gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-white truncate">{c.id} — {c.cliente}</div>
                   <div className="text-xs text-[#8090a8] mt-0.5">{c.fecha} · {fmt(c.total)}</div>
                 </div>
-                <Badge className={ESTADO_COLORS[c.estado]}>{c.estado}</Badge>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge className={ESTADO_COLORS[c.estado]}>{c.estado}</Badge>
+                  <button title="Descargar PDF" onClick={() => descargarPdfCotizacion(c)}
+                    className="text-[#0ea5c8] hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#0ea5c8]/10">
+                    <Download size={14} />
+                  </button>
+                  <button title="Imprimir" onClick={() => imprimirPdfCotizacion(c)}
+                    className="text-[#0ea5c8] hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#0ea5c8]/10">
+                    <FileText size={14} />
+                  </button>
+                </div>
               </div>
             ))}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!pdfCot} onClose={() => setPdfCot(null)} title="Cotización guardada" width="max-w-md">
+        {pdfCot && (
+          <div className="text-center py-2">
+            <div className="w-14 h-14 rounded-full bg-[#0ea5c8]/10 flex items-center justify-center mx-auto mb-3">
+              <FileText size={26} className="text-[#0ea5c8]" />
+            </div>
+            <div className="text-white font-bold text-lg">{pdfCot.id}</div>
+            <div className="text-sm text-[#8090a8] mt-1 mb-5">{pdfCot.cliente} · {fmt(pdfCot.total)}</div>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <Btn onClick={() => { descargarPdfCotizacion(pdfCot); }}>
+                <Download size={14} /> Descargar PDF
+              </Btn>
+              <Btn variant="ghost" onClick={() => { imprimirPdfCotizacion(pdfCot); }}>
+                🖨️ Imprimir
+              </Btn>
+            </div>
+            <button onClick={() => setPdfCot(null)} className="text-xs text-[#8090a8] hover:text-white mt-4">
+              Cerrar
+            </button>
           </div>
         )}
       </Modal>
