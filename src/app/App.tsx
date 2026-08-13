@@ -9,6 +9,8 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
+import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange } from "@/app/cloudSync";
+import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from "recharts";
@@ -46,7 +48,7 @@ type Venta = {
 };
 type ItemInv = { id: string; nombre: string; stock: number; minimo: number; precio: number };
 type Gasto = { id: string; fecha: string; categoria: string; monto: number; descripcion: string };
-type Pago = { id: string; cliente: string; total: number; recibido: number };
+type Pago = { id: string; cliente: string; total: number; recibido: number; tipo: "cobrar" | "pagar" };
 type Mant = {
   id: string; equipo: string; tipo: string; fechaProxima: string;
   proveedor: string; notas: string; frecuenciaDias: number; completado: boolean;
@@ -438,10 +440,11 @@ function NotifPanel({ notifs, onMarkAll, onMarkOne, onClear, onClose }: {
 
 // ─── TOP NAV ─────────────────────────────────────────────────────────────────
 
-function TopNav({ user, activeTab, setActiveTab, notifs, onMarkAll, onMarkOne, onClearNotifs, onLogout, onToggleSidebar }: {
+function TopNav({ user, activeTab, setActiveTab, notifs, onMarkAll, onMarkOne, onClearNotifs, onLogout, onToggleSidebar, syncStatus, fbConfigured }: {
   user: User; activeTab: string; setActiveTab: (t: string) => void; notifs: Notif[];
   onMarkAll: () => void; onMarkOne: (id: string) => void; onClearNotifs: () => void;
   onLogout: () => void; onToggleSidebar: () => void;
+  syncStatus: "idle" | "syncing" | "synced" | "offline" | "error"; fbConfigured: boolean;
 }) {
   const [showNotifs, setShowNotifs] = useState(false);
   const unread = notifs.filter(n => !n.leida).length;
@@ -469,6 +472,18 @@ function TopNav({ user, activeTab, setActiveTab, notifs, onMarkAll, onMarkOne, o
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
+          {fbConfigured && (
+            <div title={syncStatus === "syncing" ? "Sincronizando con la nube..." : syncStatus === "offline" ? "Sin conexión — se sincronizará al reconectar" : syncStatus === "error" ? "Error al sincronizar" : "Sincronizado con la nube"}
+              className="hidden sm:flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full border"
+              style={{
+                color: syncStatus === "syncing" ? "#f59e0b" : syncStatus === "offline" || syncStatus === "error" ? "#ef4444" : "#10b981",
+                borderColor: syncStatus === "syncing" ? "#f59e0b33" : syncStatus === "offline" || syncStatus === "error" ? "#ef444433" : "#10b98133",
+                backgroundColor: syncStatus === "syncing" ? "#f59e0b0d" : syncStatus === "offline" || syncStatus === "error" ? "#ef44440d" : "#10b9810d",
+              }}>
+              <span>{syncStatus === "syncing" ? "☁️" : syncStatus === "offline" || syncStatus === "error" ? "⚠️" : "☁️"}</span>
+              {syncStatus === "syncing" ? "Sincronizando" : syncStatus === "offline" ? "Sin conexión" : syncStatus === "error" ? "Error" : "Sincronizado"}
+            </div>
+          )}
           <div className="relative">
             <button onClick={() => setShowNotifs(!showNotifs)}
               className="relative p-2 text-[#8090a8] hover:text-white transition-colors rounded-lg hover:bg-[#0f1422]">
@@ -568,17 +583,18 @@ function Toast({ msg }: { msg: string | null }) {
 
 // ─── PAGE: COTIZADOR ──────────────────────────────────────────────────────────
 
-function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addNotif }: {
+function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addNotif, fbUrl, onFbUrlSaved }: {
   catalog: Producto[]; cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void;
   showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
+  fbUrl: string; onFbUrlSaved: (url: string) => void;
 }) {
   const [svc, setSvc] = useState<string | null>(null);
   const [items, setItems] = useState<CotItem[]>([{ id: uid(), qty: 1, nombre: "", desc: "", precio: 0 }]);
   const [form, setForm] = useState({ cliente: "", proyecto: "", email: "", whatsapp: "", ubicacion: "", fecha: today(), validez: "15 días calendario" });
   const [zonaAlert, setZonaAlert] = useState<{ riesgo: number; msg: string } | null>(null);
   const [showHist, setShowHist] = useState(false);
-  const [fbUrl, setFbUrl] = useState(ls("fb_url", ""));
-  const [showFb, setShowFb] = useState(!ls("fb_url", ""));
+  const [fbUrlInput, setFbUrlInput] = useState(fbUrl);
+  const [showFb, setShowFb] = useState(!fbUrl);
   const [pdfCot, setPdfCot] = useState<Cotizacion | null>(null);
 
   const subtotal = items.reduce((a, i) => a + (i.qty * i.precio), 0);
@@ -605,7 +621,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
     };
     const next = [cot, ...cotizaciones];
     setCotizaciones(next);
-    lsSet("zCotizaciones", next);
+    persist("zCotizaciones", next);
     addNotif({ tipo: "success", titulo: "Nueva cotización creada", mensaje: `${cot.id} — ${form.cliente} por ${fmt(total)}`, modulo: "cotizador" });
     showToast("✅ Cotización guardada en el historial");
     setPdfCot(cot);
@@ -632,12 +648,18 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
       {showFb && (
         <div className="bg-[#091520] border border-[#1a4fa8] rounded-xl p-4 mb-4 text-sm text-[#c8d8e8]">
           <strong className="text-white">☁️ Configuración Firebase</strong>
+          <p className="text-xs text-[#8090a8] mt-1">Al conectar Firebase, todos los módulos (cotizaciones, catálogo, ventas, inventario, gastos, pagos, hojas de trabajo, mantenimiento y usuarios) se guardarán automáticamente en la nube.</p>
           <div className="flex gap-2 mt-2">
-            <input value={fbUrl} onChange={e => setFbUrl(e.target.value)} placeholder="https://TU-PROYECTO-default-rtdb.firebaseio.com"
+            <input value={fbUrlInput} onChange={e => setFbUrlInput(e.target.value)} placeholder="https://TU-PROYECTO-default-rtdb.firebaseio.com"
               className="flex-1 bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
-            <Btn onClick={() => { lsSet("fb_url", fbUrl.replace(/\/$/, "")); setShowFb(false); showToast("✅ Firebase configurado"); }}>Guardar</Btn>
+            <Btn onClick={() => { const clean = fbUrlInput.replace(/\/$/, ""); onFbUrlSaved(clean); setShowFb(false); showToast("✅ Firebase configurado — sincronizando todos los módulos"); }}>Guardar</Btn>
           </div>
         </div>
+      )}
+      {!showFb && fbUrl && (
+        <button onClick={() => setShowFb(true)} className="text-xs text-[#0ea5c8] hover:text-white mb-3 flex items-center gap-1">
+          ☁️ Firebase conectado — cambiar configuración
+        </button>
       )}
 
       <Card>
@@ -780,15 +802,26 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
 
 // ─── PAGE: SEGUIMIENTO ────────────────────────────────────────────────────────
 
-function SeguimientoPage({ cotizaciones, setCotizaciones, showToast }: {
+function SeguimientoPage({ cotizaciones, setCotizaciones, showToast, addNotif }: {
   cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void; showToast: (m: string) => void;
+  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [filter, setFilter] = useState("todas");
   const filtered = filter === "todas" ? cotizaciones : cotizaciones.filter(c => c.estado === filter);
 
   function changeEstado(id: string, estado: Cotizacion["estado"]) {
     const next = cotizaciones.map(c => c.id === id ? { ...c, estado } : c);
-    setCotizaciones(next); lsSet("zCotizaciones", next); showToast("✅ Estado actualizado");
+    setCotizaciones(next); persist("zCotizaciones", next); showToast("✅ Estado actualizado");
+    const c = cotizaciones.find(x => x.id === id);
+    if (c) addNotif({ tipo: "info", titulo: "Estado de cotización actualizado", mensaje: `${c.id} — ${c.cliente} ahora está ${estado}`, modulo: "seguimiento" });
+  }
+
+  function eliminarCotizacion(id: string) {
+    const c = cotizaciones.find(x => x.id === id);
+    if (!confirm(`¿Eliminar la cotización ${c?.id}? Esta acción no se puede deshacer.`)) return;
+    const next = cotizaciones.filter(x => x.id !== id);
+    setCotizaciones(next); persist("zCotizaciones", next); showToast("🗑️ Cotización eliminada");
+    addNotif({ tipo: "warning", titulo: "Cotización eliminada", mensaje: `${c?.id} — ${c?.cliente}`, modulo: "seguimiento" });
   }
 
   const stats = { total: cotizaciones.length, pendiente: cotizaciones.filter(c => c.estado === "pendiente").length, enviada: cotizaciones.filter(c => c.estado === "enviada").length, aprobada: cotizaciones.filter(c => c.estado === "aprobada").length };
@@ -832,10 +865,14 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, showToast }: {
                     <div className="text-xs text-[#c8d8e8] mt-1">{c.cliente} · {c.proyecto}</div>
                     <div className="text-xs text-[#8090a8] mt-0.5">{c.fecha} · <span className="text-[#0ea5c8] font-semibold">{fmt(c.total)}</span></div>
                   </div>
-                  <select value={c.estado} onChange={e => changeEstado(c.id, e.target.value as Cotizacion["estado"])}
-                    className="bg-[#0b0e1a] border border-[#1a2235] rounded-lg px-2 py-1 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]">
-                    {["pendiente","enviada","aprobada","rechazada"].map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select value={c.estado} onChange={e => changeEstado(c.id, e.target.value as Cotizacion["estado"])}
+                      className="bg-[#0b0e1a] border border-[#1a2235] rounded-lg px-2 py-1 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]">
+                      {["pendiente","enviada","aprobada","rechazada"].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <button onClick={() => eliminarCotizacion(c.id)} title="Eliminar cotización"
+                      className="p-1.5 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={13} /></button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -848,14 +885,16 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, showToast }: {
 
 // ─── PAGE: CATÁLOGO ───────────────────────────────────────────────────────────
 
-function CatalogoPage({ catalog, setCatalog, showToast, fbUrl }: {
-  catalog: Producto[]; setCatalog: (c: Producto[]) => void; showToast: (m: string) => void; fbUrl: string;
+function CatalogoPage({ catalog, setCatalog, showToast, addNotif, fbUrl }: {
+  catalog: Producto[]; setCatalog: (c: Producto[]) => void; showToast: (m: string) => void;
+  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void; fbUrl: string;
 }) {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<Producto | null>(null);
   const [form, setForm] = useState<Partial<Producto>>({});
+  const [marcaOtro, setMarcaOtro] = useState(false);
 
   const filtered = catalog.filter(p =>
     (!search || (p.nombre + p.desc + p.cat + p.marca).toLowerCase().includes(search.toLowerCase())) &&
@@ -864,7 +903,9 @@ function CatalogoPage({ catalog, setCatalog, showToast, fbUrl }: {
 
   function openModal(p?: Producto) {
     setEditing(p || null);
-    setForm(p ? { ...p } : { nombre: "", marca: "", desc: "", precio: 0, inversion: 0, materiales: 0, manoObra: 0, sinFactura: false, proveedor: "", cat: "CCTV y Videovigilancia", unidad: "unidad", gratis: false });
+    const initial = p ? { ...p } : { nombre: "", marca: "", desc: "", precio: 0, inversion: 0, materiales: 0, manoObra: 0, sinFactura: false, proveedor: "", cat: "CCTV y Videovigilancia", unidad: "unidad", gratis: false };
+    setForm(initial);
+    setMarcaOtro(!!initial.marca && !MARCAS.includes(initial.marca));
     setModal(true);
   }
 
@@ -872,27 +913,32 @@ function CatalogoPage({ catalog, setCatalog, showToast, fbUrl }: {
     if (!form.nombre) { showToast("⚠️ El nombre es requerido"); return; }
     const prod: Producto = { id: editing?.id || uid(), nombre: form.nombre!, marca: form.marca || "", desc: form.desc || "", precio: form.precio || 0, inversion: form.inversion || 0, materiales: form.materiales || 0, manoObra: form.manoObra || 0, sinFactura: form.sinFactura || false, proveedor: form.proveedor || "", cat: form.cat || "CCTV y Videovigilancia", unidad: form.unidad || "unidad", gratis: form.gratis || false };
     const next = editing ? catalog.map(p => p.id === editing.id ? prod : p) : [prod, ...catalog];
-    setCatalog(next); lsSet("zentocat", next); setModal(false);
+    setCatalog(next); persist("zentocat", next); setModal(false);
     showToast(editing ? "✅ Producto actualizado" : "✅ Producto agregado");
+    addNotif({ tipo: "success", titulo: editing ? "Producto actualizado" : "Nuevo producto en catálogo", mensaje: prod.nombre, modulo: "catalogo" });
   }
 
-  function del(id: string) { if (!confirm("¿Eliminar este producto?")) return; const next = catalog.filter(p => p.id !== id); setCatalog(next); lsSet("zentocat", next); showToast("🗑️ Eliminado"); }
-  function dup(id: string) { const p = catalog.find(x => x.id === id); if (!p) return; const next = [{ ...p, id: uid(), nombre: p.nombre + " (copia)" }, ...catalog]; setCatalog(next); lsSet("zentocat", next); showToast("📋 Duplicado"); }
+  function del(id: string) {
+    if (!confirm("¿Eliminar este producto?")) return;
+    const p = catalog.find(x => x.id === id);
+    const next = catalog.filter(p => p.id !== id);
+    setCatalog(next); persist("zentocat", next); showToast("🗑️ Eliminado");
+    addNotif({ tipo: "info", titulo: "Producto eliminado", mensaje: p?.nombre || id, modulo: "catalogo" });
+  }
+  function dup(id: string) { const p = catalog.find(x => x.id === id); if (!p) return; const next = [{ ...p, id: uid(), nombre: p.nombre + " (copia)" }, ...catalog]; setCatalog(next); persist("zentocat", next); showToast("📋 Duplicado"); }
 
   async function syncUp() {
     if (!fbUrl) { showToast("⚠️ Configura Firebase primero"); return; }
-    try {
-      showToast("⏳ Subiendo...");
-      await fetch(fbUrl + "/zentodata/catalog.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(catalog) });
-      showToast("✅ Catálogo subido a Firebase");
-    } catch { showToast("⚠️ Error de conexión"); }
+    persist("zentocat", catalog);
+    showToast("⏳ Subiendo catálogo a Firebase...");
   }
   async function syncDown() {
     if (!fbUrl) { showToast("⚠️ Configura Firebase primero"); return; }
     try {
       showToast("⏳ Descargando...");
-      const r = await fetch(fbUrl + "/zentodata/catalog.json");
-      if (r.ok) { const d = await r.json(); if (Array.isArray(d)) { setCatalog(d); lsSet("zentocat", d); showToast("✅ Catálogo descargado"); } }
+      const d = await fetchCloud<Producto[]>("zentocat");
+      if (Array.isArray(d)) { setCatalog(d); persist("zentocat", d); showToast("✅ Catálogo descargado"); }
+      else { showToast("⚠️ No hay catálogo en la nube todavía"); }
     } catch { showToast("⚠️ Error de conexión"); }
   }
 
@@ -970,15 +1016,22 @@ function CatalogoPage({ catalog, setCatalog, showToast, fbUrl }: {
         <div className="space-y-3">
           <Input label="Nombre *" value={form.nombre || ""} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} />
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Marca" value={form.marca || ""} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))}>
+            <Select label="Marca" value={marcaOtro ? "Otro" : (form.marca || "")} onChange={e => {
+              if (e.target.value === "Otro") { setMarcaOtro(true); setForm(f => ({ ...f, marca: "" })); }
+              else { setMarcaOtro(false); setForm(f => ({ ...f, marca: e.target.value })); }
+            }}>
               <option value="">— Seleccionar —</option>
               {MARCAS.map(m => <option key={m}>{m}</option>)}
+              <option value="Otro">Otro...</option>
             </Select>
             <Select label="Proveedor" value={form.proveedor || ""} onChange={e => setForm(f => ({ ...f, proveedor: e.target.value }))}>
               <option value="">— Seleccionar —</option>
               {PROVEEDORES.map(p => <option key={p}>{p}</option>)}
             </Select>
           </div>
+          {marcaOtro && (
+            <Input label="Nueva marca *" placeholder="Escribe el nombre de la marca" value={form.marca || ""} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} />
+          )}
           <Textarea label="Descripción técnica" value={form.desc || ""} onChange={e => setForm(f => ({ ...f, desc: e.target.value }))} />
           <div className="grid grid-cols-2 gap-3">
             <Input label="Precio Venta (Q) *" type="number" min="0" step="0.01" value={form.precio || ""} onChange={e => setForm(f => ({ ...f, precio: +e.target.value }))} />
@@ -1029,7 +1082,7 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
     if (!form.cliente) { showToast("⚠️ El cliente es requerido"); return; }
     const v: Venta = { id: uid(), ...form };
     const next = [v, ...ventas];
-    setVentas(next); lsSet("zVentas", next); setModal(false);
+    setVentas(next); persist("zVentas", next); setModal(false);
     addNotif({ tipo: "success", titulo: "Nueva venta registrada", mensaje: `${form.cliente} — ${fmt(form.total)}`, modulo: "ventas" });
     showToast("✅ Venta registrada");
   }
@@ -1093,7 +1146,7 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
                       <td className="py-2.5 px-2 text-sm font-bold text-emerald-400">{fmt(gan)}</td>
                       <td className="py-2.5 px-2 text-xs text-yellow-400">{v.conFactura ? fmt(v.total * 0.05) : "—"}</td>
                       <td className="py-2.5 px-2 text-right">
-                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); lsSet("zVentas", n); showToast("🗑️ Eliminada"); } }}
+                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); persist("zVentas", n); showToast("🗑️ Eliminada"); } }}
                           className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
@@ -1139,7 +1192,7 @@ function InventarioPage({ inventario, setInventario, showToast, addNotif }: {
     if (!form.nombre) { showToast("⚠️ El nombre es requerido"); return; }
     const item: ItemInv = { id: uid(), ...form };
     const next = [item, ...inventario];
-    setInventario(next); lsSet("zInventario", next); setModal(false);
+    setInventario(next); persist("zInventario", next); setModal(false);
     if (item.stock <= item.minimo) addNotif({ tipo: "warning", titulo: "Stock bajo en nuevo item", mensaje: `${item.nombre}: ${item.stock} unidades (mín. ${item.minimo})`, modulo: "inventario" });
     showToast("✅ Equipo agregado");
   }
@@ -1176,10 +1229,10 @@ function InventarioPage({ inventario, setInventario, showToast, addNotif }: {
                       <td className="py-2.5 px-2 text-sm font-medium text-white">{item.nombre}</td>
                       <td className="py-2.5 px-2">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => { const n = inventario.map(i => i.id === item.id ? { ...i, stock: Math.max(0, i.stock - 1) } : i); setInventario(n); lsSet("zInventario", n); }}
+                          <button onClick={() => { const n = inventario.map(i => i.id === item.id ? { ...i, stock: Math.max(0, i.stock - 1) } : i); setInventario(n); persist("zInventario", n); }}
                             className="w-5 h-5 rounded bg-[#1a2235] text-[#8090a8] hover:text-white flex items-center justify-center text-xs">−</button>
                           <span className={`text-sm font-bold px-1 ${critico ? "text-red-400" : bajo ? "text-yellow-400" : "text-white"}`}>{item.stock}</span>
-                          <button onClick={() => { const n = inventario.map(i => i.id === item.id ? { ...i, stock: i.stock + 1 } : i); setInventario(n); lsSet("zInventario", n); }}
+                          <button onClick={() => { const n = inventario.map(i => i.id === item.id ? { ...i, stock: i.stock + 1 } : i); setInventario(n); persist("zInventario", n); }}
                             className="w-5 h-5 rounded bg-[#1a2235] text-[#8090a8] hover:text-white flex items-center justify-center text-xs">+</button>
                         </div>
                       </td>
@@ -1192,7 +1245,7 @@ function InventarioPage({ inventario, setInventario, showToast, addNotif }: {
                         </Badge>
                       </td>
                       <td className="py-2.5 px-2 text-right">
-                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = inventario.filter(x => x.id !== item.id); setInventario(n); lsSet("zInventario", n); showToast("🗑️ Eliminado"); } }}
+                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = inventario.filter(x => x.id !== item.id); setInventario(n); persist("zInventario", n); showToast("🗑️ Eliminado"); } }}
                           className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
@@ -1223,8 +1276,9 @@ function InventarioPage({ inventario, setInventario, showToast, addNotif }: {
 
 // ─── PAGE: GASTOS ─────────────────────────────────────────────────────────────
 
-function GastosPage({ gastos, setGastos, showToast }: {
+function GastosPage({ gastos, setGastos, showToast, addNotif }: {
   gastos: Gasto[]; setGastos: (g: Gasto[]) => void; showToast: (m: string) => void;
+  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ fecha: today(), categoria: "Gasolina", monto: 0, descripcion: "" });
@@ -1232,7 +1286,8 @@ function GastosPage({ gastos, setGastos, showToast }: {
   function save() {
     const g: Gasto = { id: uid(), ...form };
     const next = [g, ...gastos];
-    setGastos(next); lsSet("zGastos", next); setModal(false); showToast("✅ Gasto registrado");
+    setGastos(next); persist("zGastos", next); setModal(false); showToast("✅ Gasto registrado");
+    addNotif({ tipo: "info", titulo: "Nuevo gasto registrado", mensaje: `${g.categoria} — ${fmt(g.monto)}`, modulo: "gastos" });
   }
 
   const total = gastos.reduce((a, g) => a + g.monto, 0);
@@ -1282,7 +1337,7 @@ function GastosPage({ gastos, setGastos, showToast }: {
                     <td className="py-2.5 px-2 text-sm font-bold text-red-400">{fmt(g.monto)}</td>
                     <td className="py-2.5 px-2 text-xs text-[#8090a8] max-w-[150px] truncate">{g.descripcion || "—"}</td>
                     <td className="py-2.5 px-2 text-right">
-                      <button onClick={() => { if (confirm("¿Eliminar?")) { const n = gastos.filter(x => x.id !== g.id); setGastos(n); lsSet("zGastos", n); showToast("🗑️ Eliminado"); } }}
+                      <button onClick={() => { if (confirm("¿Eliminar?")) { const n = gastos.filter(x => x.id !== g.id); setGastos(n); persist("zGastos", n); showToast("🗑️ Eliminado"); } }}
                         className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                     </td>
                   </tr>
@@ -1312,64 +1367,87 @@ function GastosPage({ gastos, setGastos, showToast }: {
 
 // ─── PAGE: PAGOS ──────────────────────────────────────────────────────────────
 
-function PagosPage({ pagos, setPagos, showToast }: {
+function PagosPage({ pagos, setPagos, showToast, addNotif }: {
   pagos: Pago[]; setPagos: (p: Pago[]) => void; showToast: (m: string) => void;
+  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [modal, setModal] = useState(false);
   const [modalPago, setModalPago] = useState<Pago | null>(null);
-  const [form, setForm] = useState({ cliente: "", total: 0 });
+  const [form, setForm] = useState<{ cliente: string; total: number; tipo: "cobrar" | "pagar" }>({ cliente: "", total: 0, tipo: "cobrar" });
   const [abonoMonto, setAbonoMonto] = useState(0);
+  const [filter, setFilter] = useState<"todas" | "cobrar" | "pagar">("todas");
 
   function save() {
-    if (!form.cliente) { showToast("⚠️ El cliente es requerido"); return; }
-    const p: Pago = { id: uid(), cliente: form.cliente, total: form.total, recibido: 0 };
+    if (!form.cliente) { showToast("⚠️ El cliente/proveedor es requerido"); return; }
+    const p: Pago = { id: uid(), cliente: form.cliente, total: form.total, recibido: 0, tipo: form.tipo };
     const next = [p, ...pagos];
-    setPagos(next); lsSet("zPagos", next); setModal(false); showToast("✅ Cuenta por cobrar creada");
+    setPagos(next); persist("zPagos", next); setModal(false);
+    showToast(form.tipo === "cobrar" ? "✅ Cuenta por cobrar creada" : "✅ Cuenta por pagar creada");
+    addNotif({ tipo: "success", titulo: form.tipo === "cobrar" ? "Nueva cuenta por cobrar" : "Nueva cuenta por pagar", mensaje: `${p.cliente} — ${fmt(p.total)}`, modulo: "pagos" });
   }
 
   function abonar() {
     if (!modalPago || abonoMonto <= 0) return;
     const next = pagos.map(p => p.id === modalPago.id ? { ...p, recibido: Math.min(p.recibido + abonoMonto, p.total) } : p);
-    setPagos(next); lsSet("zPagos", next); setModalPago(null); showToast("✅ Abono registrado");
+    setPagos(next); persist("zPagos", next); setModalPago(null); showToast("✅ Abono registrado");
+    addNotif({ tipo: "success", titulo: modalPago.tipo === "cobrar" ? "Abono recibido" : "Pago realizado", mensaje: `${modalPago.cliente} — ${fmt(abonoMonto)}`, modulo: "pagos" });
   }
 
-  const totalPorCobrar = pagos.reduce((a, p) => a + (p.total - p.recibido), 0);
-  const totalCobrado = pagos.reduce((a, p) => a + p.recibido, 0);
+  const cuentasCobrar = pagos.filter(p => p.tipo !== "pagar");
+  const cuentasPagar = pagos.filter(p => p.tipo === "pagar");
+  const totalPorCobrar = cuentasCobrar.reduce((a, p) => a + (p.total - p.recibido), 0);
+  const totalPorPagar = cuentasPagar.reduce((a, p) => a + (p.total - p.recibido), 0);
+  const filtered = filter === "todas" ? pagos : pagos.filter(p => p.tipo === filter);
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div><h2 className="text-xl font-black text-white">Pagos & Cuentas por Cobrar</h2></div>
-        <Btn onClick={() => setModal(true)}><Plus size={14} /> Nueva Cuenta</Btn>
+        <Btn onClick={() => { setForm({ cliente: "", total: 0, tipo: "cobrar" }); setModal(true); }}><Plus size={14} /> Nueva Cuenta</Btn>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-4">
         <StatCard label="Cuentas" value={pagos.length} />
         <StatCard label="Por Cobrar" value={fmt(totalPorCobrar)} color="#ef4444" />
-        <StatCard label="Cobrado" value={fmt(totalCobrado)} color="#10b981" />
+        <StatCard label="Por Pagar" value={fmt(totalPorPagar)} color="#f59e0b" />
+      </div>
+      <div className="flex gap-2 flex-wrap mb-3">
+        {(["todas", "cobrar", "pagar"] as const).map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize border transition-all
+              ${filter === f ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+            {f === "todas" ? "Todas" : f === "cobrar" ? "Por Cobrar" : "Por Pagar"}
+          </button>
+        ))}
       </div>
       <Card>
-        {pagos.length === 0 ? <EmptyState icon="💳" msg="Sin cuentas por cobrar" /> : (
+        {filtered.length === 0 ? <EmptyState icon="💳" msg="Sin cuentas registradas" /> : (
           <div className="space-y-2">
-            {pagos.map(p => {
+            {filtered.map(p => {
               const saldo = p.total - p.recibido;
               const pct = p.total > 0 ? (p.recibido / p.total * 100) : 0;
+              const esPagar = p.tipo === "pagar";
               return (
                 <div key={p.id} className="p-3.5 bg-[#060810] rounded-xl border border-[#1a2235]">
                   <div className="flex items-center justify-between gap-3 mb-2">
                     <div>
-                      <div className="text-sm font-bold text-white">{p.cliente}</div>
-                      <div className="text-xs text-[#8090a8]">Total: {fmt(p.total)} · Recibido: {fmt(p.recibido)} · Saldo: <span className={saldo > 0 ? "text-red-400 font-semibold" : "text-emerald-400 font-semibold"}>{fmt(saldo)}</span></div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-white">{p.cliente}</span>
+                        <Badge className={esPagar ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"}>
+                          {esPagar ? "Por pagar" : "Por cobrar"}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-[#8090a8]">Total: {fmt(p.total)} · {esPagar ? "Pagado" : "Recibido"}: {fmt(p.recibido)} · Saldo: <span className={saldo > 0 ? "text-red-400 font-semibold" : "text-emerald-400 font-semibold"}>{fmt(saldo)}</span></div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {saldo > 0 && <Btn size="sm" onClick={() => { setModalPago(p); setAbonoMonto(0); }}>Abonar</Btn>}
-                      <button onClick={() => { if (confirm("¿Eliminar?")) { const n = pagos.filter(x => x.id !== p.id); setPagos(n); lsSet("zPagos", n); showToast("🗑️ Eliminado"); } }}
+                      {saldo > 0 && <Btn size="sm" onClick={() => { setModalPago(p); setAbonoMonto(0); }}>{esPagar ? "Pagar" : "Abonar"}</Btn>}
+                      <button onClick={() => { if (confirm("¿Eliminar?")) { const n = pagos.filter(x => x.id !== p.id); setPagos(n); persist("zPagos", n); showToast("🗑️ Eliminado"); addNotif({ tipo: "info", titulo: "Cuenta eliminada", mensaje: p.cliente, modulo: "pagos" }); } }}
                         className="p-1.5 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={13} /></button>
                     </div>
                   </div>
                   <div className="h-1.5 bg-[#1a2235] rounded-full overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-[#1a4fa8] to-[#0ea5c8] rounded-full transition-all" style={{ width: `${pct}%` }} />
                   </div>
-                  <div className="flex justify-between text-[10px] text-[#8090a8] mt-1"><span>0%</span><span className="font-semibold text-[#0ea5c8]">{pct.toFixed(0)}% cobrado</span><span>100%</span></div>
+                  <div className="flex justify-between text-[10px] text-[#8090a8] mt-1"><span>0%</span><span className="font-semibold text-[#0ea5c8]">{pct.toFixed(0)}% {esPagar ? "pagado" : "cobrado"}</span><span>100%</span></div>
                 </div>
               );
             })}
@@ -1377,10 +1455,23 @@ function PagosPage({ pagos, setPagos, showToast }: {
         )}
       </Card>
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nueva Cuenta por Cobrar">
+      <Modal open={modal} onClose={() => setModal(false)} title="Nueva Cuenta">
         <div className="space-y-3">
-          <Input label="Cliente *" value={form.cliente} onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))} />
-          <Input label="Total a Cobrar (Q) *" type="number" step="0.01" value={form.total || ""} onChange={e => setForm(f => ({ ...f, total: +e.target.value }))} />
+          <div>
+            <label className="text-xs font-semibold text-[#8090a8] mb-1.5 block">Tipo de cuenta *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setForm(f => ({ ...f, tipo: "cobrar" }))}
+                className={`py-2.5 rounded-lg text-sm font-semibold border transition-all ${form.tipo === "cobrar" ? "bg-red-500/10 border-red-500 text-red-400" : "bg-[#060810] border-[#1a2235] text-[#8090a8]"}`}>
+                💰 Por Cobrar
+              </button>
+              <button type="button" onClick={() => setForm(f => ({ ...f, tipo: "pagar" }))}
+                className={`py-2.5 rounded-lg text-sm font-semibold border transition-all ${form.tipo === "pagar" ? "bg-amber-500/10 border-amber-500 text-amber-400" : "bg-[#060810] border-[#1a2235] text-[#8090a8]"}`}>
+                📤 Por Pagar
+              </button>
+            </div>
+          </div>
+          <Input label={form.tipo === "cobrar" ? "Cliente *" : "Proveedor / Acreedor *"} value={form.cliente} onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))} />
+          <Input label={form.tipo === "cobrar" ? "Total a Cobrar (Q) *" : "Total a Pagar (Q) *"} type="number" step="0.01" value={form.total || ""} onChange={e => setForm(f => ({ ...f, total: +e.target.value }))} />
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
             <Btn onClick={save}>Guardar</Btn>
@@ -1388,7 +1479,7 @@ function PagosPage({ pagos, setPagos, showToast }: {
         </div>
       </Modal>
 
-      <Modal open={!!modalPago} onClose={() => setModalPago(null)} title={`Registrar Abono — ${modalPago?.cliente}`}>
+      <Modal open={!!modalPago} onClose={() => setModalPago(null)} title={`${modalPago?.tipo === "pagar" ? "Registrar Pago" : "Registrar Abono"} — ${modalPago?.cliente}`}>
         <div className="space-y-3">
           <div className="p-3 bg-[#060810] rounded-xl border border-[#1a2235] text-sm">
             <div className="flex justify-between"><span className="text-[#8090a8]">Total:</span><span className="text-white font-bold">{fmt(modalPago?.total || 0)}</span></div>
@@ -1410,8 +1501,9 @@ function PagosPage({ pagos, setPagos, showToast }: {
 
 const HT_SERVICIOS = ["Instalación CCTV","Redes/Cableado","Configuración NVR/DVR","Soporte Técnico","Mantenimiento","Reparación","Biométrico","Control de Acceso"];
 
-function HojaTrabajoPage({ cotizaciones, showToast }: {
+function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
   cotizaciones: Cotizacion[]; showToast: (m: string) => void;
+  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [f, setF] = useState({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" });
   const [servicios, setServicios] = useState<string[]>([]);
@@ -1419,7 +1511,7 @@ function HojaTrabajoPage({ cotizaciones, showToast }: {
   const [obs, setObs] = useState("");
   const [equipos, setEquipos] = useState<{ id: string; desc: string; marca: string; spec: string }[]>([]);
   const [patron, setPatron] = useState<number[]>([]);
-  const [saved, setSaved] = useState<typeof f & { servicios: string[]; desc: string; obs: string; id: string }[]>(ls("zHojas", []));
+  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string })[]>(ls("zHojas", []));
 
   function buscarCot(val: string) {
     setF(x => ({ ...x, orden: val }));
@@ -1436,7 +1528,8 @@ function HojaTrabajoPage({ cotizaciones, showToast }: {
     if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
     const hoja = { ...f, servicios, desc, obs, id: uid() };
     const next = [hoja, ...saved];
-    setSaved(next); lsSet("zHojas", next); showToast("✅ Hoja guardada");
+    setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
+    addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
   }
 
   function limpiar() { setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" }); setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); }
@@ -1553,7 +1646,7 @@ function HojaTrabajoPage({ cotizaciones, showToast }: {
                   <div className="text-sm font-semibold text-white">{h.nombre}</div>
                   <div className="text-xs text-[#8090a8]">{h.fecha} · {h.servicios.join(", ") || "Sin servicios"}</div>
                 </div>
-                <button onClick={() => { const n = saved.filter(x => x.id !== h.id); setSaved(n); lsSet("zHojas", n); showToast("🗑️ Eliminada"); }}
+                <button onClick={() => { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); }}
                   className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
               </div>
             ))}
@@ -1577,7 +1670,7 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
     if (!form.equipo) { showToast("⚠️ El equipo es requerido"); return; }
     const m: Mant = { id: uid(), ...form };
     const next = [m, ...mantenimientos];
-    setMantenimientos(next); lsSet("zMant", next); setModal(false);
+    setMantenimientos(next); persist("zMant", next); setModal(false);
     const dias = Math.ceil((new Date(m.fechaProxima).getTime() - Date.now()) / 86400000);
     if (dias <= 7) addNotif({ tipo: "warning", titulo: "Mantenimiento próximo", mensaje: `${m.equipo} — ${m.tipo} en ${dias} día(s)`, modulo: "mantenimiento" });
     showToast("✅ Recordatorio guardado");
@@ -1633,14 +1726,14 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
                       <td className="py-2.5 px-2 text-xs text-[#8090a8]">{m.proveedor || "—"}</td>
                       <td className="py-2.5 px-2 text-xs text-[#8090a8] max-w-[100px] truncate">{m.notas || "—"}</td>
                       <td className="py-2.5 px-2">
-                        <button onClick={() => { const next = mantenimientos.map(x => x.id === m.id ? { ...x, completado: !x.completado } : x); setMantenimientos(next); lsSet("zMant", next); }}>
+                        <button onClick={() => { const next = mantenimientos.map(x => x.id === m.id ? { ...x, completado: !x.completado } : x); setMantenimientos(next); persist("zMant", next); }}>
                           <Badge className={m.completado ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20 cursor-pointer" : "text-yellow-400 bg-yellow-400/10 border-yellow-400/20 cursor-pointer"}>
                             {m.completado ? "Completado" : "Pendiente"}
                           </Badge>
                         </button>
                       </td>
                       <td className="py-2.5 px-2 text-right">
-                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = mantenimientos.filter(x => x.id !== m.id); setMantenimientos(n); lsSet("zMant", n); showToast("🗑️ Eliminado"); } }}
+                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = mantenimientos.filter(x => x.id !== m.id); setMantenimientos(n); persist("zMant", n); showToast("🗑️ Eliminado"); } }}
                           className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
@@ -1737,7 +1830,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
     };
 
     const next = editing ? users.map(x => x.id === editing.id ? u : x) : [...users, u];
-    setUsers(next); lsSet("zUsers", next); setModal(false);
+    setUsers(next); persist("zUsers", next); setModal(false);
     if (!editing) addNotif({ tipo: "info", titulo: "Nuevo usuario creado", mensaje: `${u.nombre} (${ROLE_LABELS[u.rol]}) fue agregado al sistema`, modulo: "usuarios" });
     showToast(editing ? "✅ Usuario actualizado" : "✅ Usuario creado");
   }
@@ -1745,14 +1838,14 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
   function toggleActivo(id: string) {
     if (id === "admin-001") { showToast("⚠️ No se puede desactivar el administrador principal"); return; }
     const next = users.map(u => u.id === id ? { ...u, activo: !u.activo } : u);
-    setUsers(next); lsSet("zUsers", next); showToast("✅ Estado actualizado");
+    setUsers(next); persist("zUsers", next); showToast("✅ Estado actualizado");
   }
 
   function del(id: string) {
     if (id === "admin-001") { showToast("⚠️ No se puede eliminar el administrador principal"); return; }
     if (!confirm("¿Eliminar este usuario?")) return;
     const next = users.filter(u => u.id !== id);
-    setUsers(next); lsSet("zUsers", next); showToast("🗑️ Usuario eliminado");
+    setUsers(next); persist("zUsers", next); showToast("🗑️ Usuario eliminado");
   }
 
   return (
@@ -1947,7 +2040,7 @@ export default function App() {
   // Data state
   const [users, setUsers] = useState<User[]>(() => {
     const stored = ls<User[]>("zUsers", []);
-    if (stored.length === 0) { lsSet("zUsers", [ADMIN_DEFAULT]); return [ADMIN_DEFAULT]; }
+    if (stored.length === 0) { persist("zUsers", [ADMIN_DEFAULT]); return [ADMIN_DEFAULT]; }
     return stored;
   });
   const [catalog, setCatalog] = useState<Producto[]>(() => ls("zentocat", null) ?? DEFAULT_CATALOG);
@@ -1958,14 +2051,42 @@ export default function App() {
   const [pagos, setPagos] = useState<Pago[]>(() => ls("zPagos", []));
   const [mantenimientos, setMantenimientos] = useState<Mant[]>(() => ls("zMant", []));
   const [notifs, setNotifs] = useState<Notif[]>(() => ls("zNotifs", []));
-  const fbUrl = ls("fb_url", "");
+  const [fbUrl, setFbUrlState] = useState(ls("fb_url", ""));
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "offline" | "error">("idle");
+  const [cloudLoaded, setCloudLoaded] = useState(false);
 
   function addNotif(n: Omit<Notif, "id" | "fecha" | "leida">) {
     const notif: Notif = { ...n, id: uid(), fecha: new Date().toISOString(), leida: false };
-    setNotifs(prev => { const next = [notif, ...prev].slice(0, 50); lsSet("zNotifs", next); return next; });
+    setNotifs(prev => { const next = [notif, ...prev].slice(0, 50); persist("zNotifs", next); return next; });
+    notifyBrowser(n.titulo, n.mensaje);
   }
 
-  // Auto-generate alerts on load
+  // Pide permiso de notificaciones del navegador al abrir la app
+  useEffect(() => { requestNotifPermission(); }, []);
+
+  // Escucha el estado de sincronización con la nube
+  useEffect(() => onSyncStatusChange(setSyncStatus), []);
+
+  // Al iniciar (y si hay Firebase configurado), trae todos los datos de la nube
+  // para que la app quede sincronizada entre dispositivos
+  useEffect(() => {
+    if (!fbUrl || cloudLoaded) return;
+    (async () => {
+      const cloud = await fetchAllCloud();
+      if (cloud.zUsers) setUsers(cloud.zUsers as User[]);
+      if (cloud.zentocat) setCatalog(cloud.zentocat as Producto[]);
+      if (cloud.zCotizaciones) setCotizaciones(cloud.zCotizaciones as Cotizacion[]);
+      if (cloud.zVentas) setVentas(cloud.zVentas as Venta[]);
+      if (cloud.zInventario) setInventario(cloud.zInventario as ItemInv[]);
+      if (cloud.zGastos) setGastos(cloud.zGastos as Gasto[]);
+      if (cloud.zPagos) setPagos((cloud.zPagos as Pago[]).map(p => ({ tipo: "cobrar", ...p })));
+      if (cloud.zMant) setMantenimientos(cloud.zMant as Mant[]);
+      if (cloud.zNotifs) setNotifs(cloud.zNotifs as Notif[]);
+      if (cloud.zHojas) lsSet("zHojas", cloud.zHojas);
+      setCloudLoaded(true);
+      if (Object.keys(cloud).length > 0) showToast("☁️ Datos sincronizados desde la nube");
+    })();
+  }, [fbUrl, cloudLoaded]);
   useEffect(() => {
     const alerts: Omit<Notif, "id" | "fecha" | "leida">[] = [];
     const bajos = inventario.filter(i => i.stock <= i.minimo);
@@ -1979,7 +2100,7 @@ export default function App() {
     const updated = { ...u, ultimoAcceso: new Date().toISOString() };
     setCurrentUser(updated);
     const updatedUsers = users.map(x => x.id === u.id ? updated : x);
-    setUsers(updatedUsers); lsSet("zUsers", updatedUsers);
+    setUsers(updatedUsers); persist("zUsers", updatedUsers);
     addNotif({ tipo: "success", titulo: "Sesión iniciada", mensaje: `Bienvenido, ${u.nombre}`, modulo: "sistema" });
     setPhase("app");
   }
@@ -1993,18 +2114,24 @@ export default function App() {
     if (visible.length > 0 && !visible.find(t => t.id === activeTab)) setActiveTab(visible[0].id);
   }, [currentUser, activeTab]);
 
+  function handleFbUrlSaved(url: string) {
+    lsSet("fb_url", url);
+    setFbUrlState(url);
+    setCloudLoaded(false); // fuerza una nueva sincronización con la nueva URL
+  }
+
   const renderPage = () => {
     if (!currentUser) return null;
     const props = { showToast, addNotif };
     switch (activeTab) {
-      case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} {...props} />;
-      case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} showToast={showToast} />;
-      case "catalogo": return <CatalogoPage catalog={catalog} setCatalog={setCatalog} showToast={showToast} fbUrl={fbUrl} />;
+      case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} fbUrl={fbUrl} onFbUrlSaved={handleFbUrlSaved} {...props} />;
+      case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} {...props} />;
+      case "catalogo": return <CatalogoPage catalog={catalog} setCatalog={setCatalog} fbUrl={fbUrl} {...props} />;
       case "ventas": return <VentasPage ventas={ventas} setVentas={setVentas} {...props} />;
       case "inventario": return <InventarioPage inventario={inventario} setInventario={setInventario} {...props} />;
-      case "gastos": return <GastosPage gastos={gastos} setGastos={setGastos} showToast={showToast} />;
-      case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} showToast={showToast} />;
-      case "hojatrabajo": return <HojaTrabajoPage cotizaciones={cotizaciones} showToast={showToast} />;
+      case "gastos": return <GastosPage gastos={gastos} setGastos={setGastos} {...props} />;
+      case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} {...props} />;
+      case "hojatrabajo": return <HojaTrabajoPage cotizaciones={cotizaciones} {...props} />;
       case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} {...props} />;
       case "usuarios": return <UsuariosPage users={users} setUsers={setUsers} currentUser={currentUser} {...props} />;
       default: return null;
@@ -2028,11 +2155,13 @@ export default function App() {
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             notifs={notifs}
-            onMarkAll={() => { const n = notifs.map(x => ({ ...x, leida: true })); setNotifs(n); lsSet("zNotifs", n); }}
-            onMarkOne={(id) => { const n = notifs.map(x => x.id === id ? { ...x, leida: true } : x); setNotifs(n); lsSet("zNotifs", n); }}
-            onClearNotifs={() => { setNotifs([]); lsSet("zNotifs", []); }}
+            onMarkAll={() => { const n = notifs.map(x => ({ ...x, leida: true })); setNotifs(n); persist("zNotifs", n); }}
+            onMarkOne={(id) => { const n = notifs.map(x => x.id === id ? { ...x, leida: true } : x); setNotifs(n); persist("zNotifs", n); }}
+            onClearNotifs={() => { setNotifs([]); persist("zNotifs", []); }}
             onLogout={handleLogout}
             onToggleSidebar={() => setSidebarOpen(true)}
+            syncStatus={syncStatus}
+            fbConfigured={!!fbUrl}
           />
           <Sidebar
             open={sidebarOpen}
