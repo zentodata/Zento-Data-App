@@ -14,6 +14,13 @@ export type CotizacionPDF = {
   validez: string;
   items: CotItem[];
   subtotal: number;
+  aplicaDescuento?: boolean;
+  descuentoTipo?: "monto" | "porcentaje";
+  descuentoValor?: number;
+  descuentoMonto?: number;
+  aplicaIva?: boolean;
+  ivaPct?: number;
+  ivaMonto?: number;
   total: number;
 };
 
@@ -159,10 +166,27 @@ function buildPdf(cot: CotizacionPDF): jsPDF {
   doc.text("Subtotal", totalsX, y);
   doc.setTextColor(14, 165, 200);
   doc.text(fmtQ(cot.subtotal), pageW - marginX, y, { align: "right" });
-  y += 20;
+  y += 18;
+
+  if (cot.aplicaDescuento && cot.descuentoMonto) {
+    doc.setTextColor(217, 119, 6);
+    const label = cot.descuentoTipo === "porcentaje" ? `Descuento (${cot.descuentoValor}%)` : "Descuento";
+    doc.text(label, totalsX, y);
+    doc.text(`– ${fmtQ(cot.descuentoMonto)}`, pageW - marginX, y, { align: "right" });
+    y += 18;
+  }
+
+  if (cot.aplicaIva) {
+    doc.setTextColor(90, 100, 120);
+    doc.text(`IVA — Peq. Contribuyente (${cot.ivaPct}%)`, totalsX, y);
+    doc.setTextColor(14, 165, 200);
+    doc.text(fmtQ(cot.ivaMonto || 0), pageW - marginX, y, { align: "right" });
+    y += 18;
+  }
 
   doc.setDrawColor(200, 205, 215);
-  doc.line(totalsX, y - 14, pageW - marginX, y - 14);
+  doc.line(totalsX, y - 12, pageW - marginX, y - 12);
+  y += 8;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);

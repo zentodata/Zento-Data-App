@@ -40,7 +40,10 @@ type CotItem = { id: string; qty: number; nombre: string; desc: string; precio: 
 type Cotizacion = {
   id: string; num: number; fecha: string; cliente: string; proyecto: string;
   email: string; whatsapp: string; ubicacion: string; validez: string;
-  servicio: string; items: CotItem[]; subtotal: number; total: number;
+  servicio: string; items: CotItem[]; subtotal: number;
+  aplicaDescuento?: boolean; descuentoTipo?: "monto" | "porcentaje"; descuentoValor?: number; descuentoMonto?: number;
+  aplicaIva?: boolean; ivaPct?: number; ivaMonto?: number;
+  total: number;
   estado: "pendiente" | "enviada" | "aprobada" | "rechazada";
 };
 type Venta = {
@@ -596,9 +599,17 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
   const [fbUrlInput, setFbUrlInput] = useState(fbUrl);
   const [showFb, setShowFb] = useState(!fbUrl);
   const [pdfCot, setPdfCot] = useState<Cotizacion | null>(null);
+  const [aplicaDescuento, setAplicaDescuento] = useState(false);
+  const [descuentoTipo, setDescuentoTipo] = useState<"monto" | "porcentaje">("porcentaje");
+  const [descuentoValor, setDescuentoValor] = useState(0);
+  const [aplicaIva, setAplicaIva] = useState(false);
+  const [ivaPct, setIvaPct] = useState(5);
 
   const subtotal = items.reduce((a, i) => a + (i.qty * i.precio), 0);
-  const total = subtotal;
+  const descuentoMonto = aplicaDescuento ? Math.min(descuentoTipo === "porcentaje" ? subtotal * (descuentoValor / 100) : descuentoValor, subtotal) : 0;
+  const baseGravable = Math.max(subtotal - descuentoMonto, 0);
+  const ivaMonto = aplicaIva ? baseGravable * (ivaPct / 100) : 0;
+  const total = baseGravable + ivaMonto;
 
   function addItem() { setItems([...items, { id: uid(), qty: 1, nombre: "", desc: "", precio: 0 }]); }
   function delItem(id: string) { setItems(items.filter(i => i.id !== id)); }
@@ -616,7 +627,10 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
     const num = cotizaciones.length + 1;
     const cot: Cotizacion = {
       id: `COT-${String(num).padStart(4,"0")}`,
-      num, ...form, servicio: svc || "", items, subtotal, total,
+      num, ...form, servicio: svc || "", items, subtotal,
+      aplicaDescuento, descuentoTipo, descuentoValor, descuentoMonto,
+      aplicaIva, ivaPct, ivaMonto,
+      total,
       estado: "pendiente",
     };
     const next = [cot, ...cotizaciones];
@@ -740,9 +754,58 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
         <button onClick={addItem} className="w-full mt-3 py-2 border border-dashed border-[#1a2235] rounded-xl text-[#0ea5c8] text-sm font-semibold hover:border-[#0ea5c8] transition-colors">
           + Agregar ítem
         </button>
+
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button type="button" onClick={() => setAplicaDescuento(v => !v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+              ${aplicaDescuento ? "bg-amber-500/10 border-amber-500 text-amber-400" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+            🏷️ Descuento
+          </button>
+          <button type="button" onClick={() => setAplicaIva(v => !v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+              ${aplicaIva ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+            🧾 IVA
+          </button>
+        </div>
+
+        {aplicaDescuento && (
+          <div className="flex items-end gap-2 mt-3 flex-wrap">
+            <div>
+              <label className="text-xs font-semibold text-[#8090a8] mb-1.5 block">Tipo</label>
+              <select value={descuentoTipo} onChange={e => setDescuentoTipo(e.target.value as "monto" | "porcentaje")}
+                className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] h-[38px] focus:outline-none focus:border-[#0ea5c8]">
+                <option value="porcentaje">Porcentaje (%)</option>
+                <option value="monto">Monto (Q)</option>
+              </select>
+            </div>
+            <div className="w-32">
+              <Input label={descuentoTipo === "monto" ? "Descuento (Q)" : "Descuento (%)"} type="number" min="0" step="0.01"
+                value={descuentoValor || ""} onChange={e => setDescuentoValor(+e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {aplicaIva && (
+          <div className="w-32 mt-3">
+            <Input label="IVA — Peq. Contribuyente (%)" type="number" min="0" step="0.01" value={ivaPct} onChange={e => setIvaPct(+e.target.value)} />
+          </div>
+        )}
+
         <div className="flex justify-end mt-4">
           <div className="bg-[#060810] border border-[#1a2235] rounded-xl px-5 py-3 min-w-48">
             <div className="flex justify-between text-sm py-1 gap-8"><span className="text-[#8090a8]">Subtotal</span><span className="text-[#0ea5c8]">{fmt(subtotal)}</span></div>
+            {aplicaDescuento && descuentoMonto > 0 && (
+              <div className="flex justify-between text-sm py-1 gap-8">
+                <span className="text-amber-400">Descuento{descuentoTipo === "porcentaje" ? ` (${descuentoValor}%)` : ""}</span>
+                <span className="text-amber-400">– {fmt(descuentoMonto)}</span>
+              </div>
+            )}
+            {aplicaIva && (
+              <div className="flex justify-between text-sm py-1 gap-8">
+                <span className="text-[#8090a8]">IVA — Peq. Contribuyente ({ivaPct}%)</span>
+                <span className="text-[#0ea5c8]">{fmt(ivaMonto)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-base font-black py-1 border-t border-[#1a2235] mt-1 pt-2 gap-8"><span className="text-white">TOTAL</span><span className="text-[#0ea5c8]">{fmt(total)}</span></div>
           </div>
         </div>
