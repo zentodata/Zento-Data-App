@@ -9,7 +9,7 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
-import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange } from "@/app/cloudSync";
+import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig, parseFirebaseConfigText, type FirebaseWebConfig } from "@/app/cloudSync";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -388,6 +388,65 @@ function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (u: User) => 
   );
 }
 
+// ─── CAMBIO OBLIGATORIO DE CONTRASEÑA DE FÁBRICA ──────────────────────────────
+
+function ForceChangePasswordScreen({ userName, onChanged, onLogout }: {
+  userName: string; onChanged: (newPassword: string) => void; onLogout: () => void;
+}) {
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [err, setErr] = useState("");
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (pw1.length < 8) { setErr("Usa al menos 8 caracteres"); return; }
+    if (pw1 === "zento2024") { setErr("Elige una contraseña distinta a la de fábrica"); return; }
+    if (pw1 !== pw2) { setErr("Las contraseñas no coinciden"); return; }
+    onChanged(pw1);
+  }
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-[#07090f] px-4">
+      <motion.div className="w-full max-w-sm" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <div className="flex flex-col items-center mb-6 text-center">
+          <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
+            <AlertTriangle size={26} className="text-amber-400" />
+          </div>
+          <h1 className="text-xl font-black text-white">Actualiza tu contraseña</h1>
+          <p className="text-[#8090a8] text-xs mt-2 leading-relaxed">
+            Hola {userName}, tu cuenta todavía usa la <strong className="text-amber-400">contraseña de fábrica</strong>.
+            Por seguridad, debes elegir una nueva antes de continuar — esta contraseña queda visible en el código
+            fuente público del proyecto, así que cualquiera podría usarla.
+          </p>
+        </div>
+        <form onSubmit={submit} className="bg-[#0b0e1a] border border-[#1a2235] rounded-2xl p-6 space-y-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider">Nueva contraseña</label>
+            <div className="relative">
+              <input type={showPw ? "text" : "password"} value={pw1} onChange={e => setPw1(e.target.value)}
+                className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-[#e8e8f0] text-sm focus:outline-none focus:border-[#0ea5c8] transition-colors pr-10"
+                placeholder="Mínimo 8 caracteres" required />
+              <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8090a8] hover:text-white">
+                {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+          <Input label="Confirmar contraseña" type={showPw ? "text" : "password"} value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Repetir contraseña" required />
+          {err && <p className="text-red-400 text-xs">{err}</p>}
+          <button type="submit" className="w-full py-2.5 rounded-xl font-bold text-white text-sm transition-opacity hover:opacity-90"
+            style={{ background: "linear-gradient(135deg,#1a4fa8,#0ea5c8)" }}>
+            Guardar y continuar
+          </button>
+          <button type="button" onClick={onLogout} className="w-full text-center text-xs text-[#8090a8] hover:text-white">
+            Cerrar sesión
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── NOTIFICATION PANEL ───────────────────────────────────────────────────────
 
 function NotifIcon({ tipo }: { tipo: Notif["tipo"] }) {
@@ -586,18 +645,19 @@ function Toast({ msg }: { msg: string | null }) {
 
 // ─── PAGE: COTIZADOR ──────────────────────────────────────────────────────────
 
-function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addNotif, fbUrl, onFbUrlSaved }: {
+function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addNotif, fbUrl, onFbConfigSaved, onFbDisconnect }: {
   catalog: Producto[]; cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void;
   showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
-  fbUrl: string; onFbUrlSaved: (url: string) => void;
+  fbUrl: string; onFbConfigSaved: (config: FirebaseWebConfig) => void; onFbDisconnect: () => void;
 }) {
   const [svc, setSvc] = useState<string | null>(null);
   const [items, setItems] = useState<CotItem[]>([{ id: uid(), qty: 1, nombre: "", desc: "", precio: 0 }]);
   const [form, setForm] = useState({ cliente: "", proyecto: "", email: "", whatsapp: "", ubicacion: "", fecha: today(), validez: "15 días calendario" });
   const [zonaAlert, setZonaAlert] = useState<{ riesgo: number; msg: string } | null>(null);
   const [showHist, setShowHist] = useState(false);
-  const [fbUrlInput, setFbUrlInput] = useState(fbUrl);
-  const [showFb, setShowFb] = useState(!fbUrl);
+  const [fbConfigText, setFbConfigText] = useState("");
+  const [fbConfigErr, setFbConfigErr] = useState("");
+  const [showFb, setShowFb] = useState(!getFbConfig());
   const [pdfCot, setPdfCot] = useState<Cotizacion | null>(null);
   const [aplicaDescuento, setAplicaDescuento] = useState(false);
   const [descuentoTipo, setDescuentoTipo] = useState<"monto" | "porcentaje">("porcentaje");
@@ -661,19 +721,42 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
 
       {showFb && (
         <div className="bg-[#091520] border border-[#1a4fa8] rounded-xl p-4 mb-4 text-sm text-[#c8d8e8]">
-          <strong className="text-white">☁️ Configuración Firebase</strong>
-          <p className="text-xs text-[#8090a8] mt-1">Al conectar Firebase, todos los módulos (cotizaciones, catálogo, ventas, inventario, gastos, pagos, hojas de trabajo, mantenimiento y usuarios) se guardarán automáticamente en la nube.</p>
+          <strong className="text-white">☁️ Configuración Firebase (con autenticación)</strong>
+          <p className="text-xs text-[#8090a8] mt-1.5">
+            1. Ve a la <strong>Consola de Firebase</strong> → tu proyecto → ⚙️ Configuración del proyecto → "Tus apps" → copia el objeto <code className="text-[#0ea5c8]">firebaseConfig</code>.<br />
+            2. En <strong>Authentication → Sign-in method</strong>, habilita el proveedor <strong>"Anónimo"</strong>.<br />
+            3. Pega aquí abajo el objeto completo (tal cual, con las llaves { } incluidas):
+          </p>
+          <textarea value={fbConfigText} onChange={e => setFbConfigText(e.target.value)} rows={6}
+            placeholder={'const firebaseConfig = {\n  apiKey: "...",\n  authDomain: "tu-proyecto.firebaseapp.com",\n  databaseURL: "https://tu-proyecto-default-rtdb.firebaseio.com",\n  projectId: "tu-proyecto",\n  ...\n};'}
+            className="w-full mt-2 bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-xs text-[#e8e8f0] font-mono focus:outline-none focus:border-[#0ea5c8]" />
+          {fbConfigErr && <p className="text-red-400 text-xs mt-1">{fbConfigErr}</p>}
           <div className="flex gap-2 mt-2">
-            <input value={fbUrlInput} onChange={e => setFbUrlInput(e.target.value)} placeholder="https://TU-PROYECTO-default-rtdb.firebaseio.com"
-              className="flex-1 bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
-            <Btn onClick={() => { const clean = fbUrlInput.replace(/\/$/, ""); onFbUrlSaved(clean); setShowFb(false); showToast("✅ Firebase configurado — sincronizando todos los módulos"); }}>Guardar</Btn>
+            <Btn onClick={() => {
+              const parsed = parseFirebaseConfigText(fbConfigText);
+              if (!parsed) { setFbConfigErr("⚠️ No se encontraron apiKey, databaseURL y projectId. Verifica que hayas pegado el objeto completo."); return; }
+              setFbConfigErr("");
+              onFbConfigSaved(parsed);
+              setShowFb(false);
+              showToast("✅ Firebase configurado con autenticación — sincronizando todos los módulos");
+            }}>Guardar y conectar</Btn>
+            {fbUrl && <Btn variant="ghost" onClick={() => setShowFb(false)}>Cancelar</Btn>}
           </div>
+          <p className="text-[10px] text-[#5a6a80] mt-2">
+            No olvides actualizar las reglas de tu Realtime Database a <code>"auth != null"</code> una vez que confirmes que la sincronización funciona.
+          </p>
         </div>
       )}
       {!showFb && fbUrl && (
-        <button onClick={() => setShowFb(true)} className="text-xs text-[#0ea5c8] hover:text-white mb-3 flex items-center gap-1">
-          ☁️ Firebase conectado — cambiar configuración
-        </button>
+        <div className="flex items-center gap-3 mb-3">
+          <button onClick={() => setShowFb(true)} className="text-xs text-[#0ea5c8] hover:text-white flex items-center gap-1">
+            ☁️ Firebase conectado (con autenticación) — cambiar configuración
+          </button>
+          <button onClick={() => { if (confirm("¿Desconectar Firebase? Los datos dejarán de sincronizarse con la nube (seguirán en este dispositivo).")) { clearFbConfig(); onFbDisconnect(); showToast("☁️ Firebase desconectado"); } }}
+            className="text-xs text-red-400 hover:text-red-300">
+            Desconectar
+          </button>
+        </div>
       )}
 
       <Card>
@@ -2094,7 +2177,7 @@ function usePWA() {
 
 export default function App() {
   usePWA();
-  const [phase, setPhase] = useState<"splash" | "login" | "app">("splash");
+  const [phase, setPhase] = useState<"splash" | "login" | "changepw" | "app">("splash");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState("cotizador");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2114,7 +2197,7 @@ export default function App() {
   const [pagos, setPagos] = useState<Pago[]>(() => ls("zPagos", []));
   const [mantenimientos, setMantenimientos] = useState<Mant[]>(() => ls("zMant", []));
   const [notifs, setNotifs] = useState<Notif[]>(() => ls("zNotifs", []));
-  const [fbUrl, setFbUrlState] = useState(ls("fb_url", ""));
+  const [fbUrl, setFbUrlState] = useState(() => getFbUrl());
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "offline" | "error">("idle");
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
@@ -2165,6 +2248,18 @@ export default function App() {
     const updatedUsers = users.map(x => x.id === u.id ? updated : x);
     setUsers(updatedUsers); persist("zUsers", updatedUsers);
     addNotif({ tipo: "success", titulo: "Sesión iniciada", mensaje: `Bienvenido, ${u.nombre}`, modulo: "sistema" });
+    // Por seguridad, si todavía usa la contraseña de fábrica, se obliga a cambiarla antes de continuar
+    setPhase(u.password === "zento2024" ? "changepw" : "app");
+  }
+
+  function handlePasswordChanged(newPassword: string) {
+    if (!currentUser) return;
+    const updated = { ...currentUser, password: newPassword };
+    setCurrentUser(updated);
+    const updatedUsers = users.map(x => x.id === updated.id ? updated : x);
+    setUsers(updatedUsers); persist("zUsers", updatedUsers);
+    addNotif({ tipo: "success", titulo: "Contraseña actualizada", mensaje: "La contraseña de fábrica fue reemplazada", modulo: "sistema" });
+    showToast("✅ Contraseña actualizada");
     setPhase("app");
   }
 
@@ -2177,17 +2272,23 @@ export default function App() {
     if (visible.length > 0 && !visible.find(t => t.id === activeTab)) setActiveTab(visible[0].id);
   }, [currentUser, activeTab]);
 
-  function handleFbUrlSaved(url: string) {
-    lsSet("fb_url", url);
-    setFbUrlState(url);
-    setCloudLoaded(false); // fuerza una nueva sincronización con la nueva URL
+  function handleFbConfigSaved(config: FirebaseWebConfig) {
+    saveFbConfig(config);
+    setFbUrlState(config.databaseURL.replace(/\/$/, ""));
+    setCloudLoaded(false); // fuerza una nueva sincronización con la nueva configuración
+  }
+
+  function handleFbDisconnect() {
+    clearFbConfig();
+    setFbUrlState("");
+    setCloudLoaded(false);
   }
 
   const renderPage = () => {
     if (!currentUser) return null;
     const props = { showToast, addNotif };
     switch (activeTab) {
-      case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} fbUrl={fbUrl} onFbUrlSaved={handleFbUrlSaved} {...props} />;
+      case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} fbUrl={fbUrl} onFbConfigSaved={handleFbConfigSaved} onFbDisconnect={handleFbDisconnect} {...props} />;
       case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} {...props} />;
       case "catalogo": return <CatalogoPage catalog={catalog} setCatalog={setCatalog} fbUrl={fbUrl} {...props} />;
       case "ventas": return <VentasPage ventas={ventas} setVentas={setVentas} {...props} />;
@@ -2209,6 +2310,10 @@ export default function App() {
 
       {phase === "login" && (
         <LoginScreen users={users} onLogin={handleLogin} />
+      )}
+
+      {phase === "changepw" && currentUser && (
+        <ForceChangePasswordScreen userName={currentUser.nombre} onChanged={handlePasswordChanged} onLogout={handleLogout} />
       )}
 
       {phase === "app" && currentUser && (
