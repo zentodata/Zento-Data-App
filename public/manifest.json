@@ -3,8 +3,8 @@
   "name": "Zento Data — Sistema de Gestión",
   "short_name": "ZentoData",
   "description": "Sistema profesional de cotización y gestión para empresas de seguridad electrónica en Guatemala.",
-  "start_url": "/Zento-Data-App/",
-  "scope": "/Zento-Data-App/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#07090f",
@@ -15,19 +15,19 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/Zento-Data-App/icon-192.png",
+      "src": "/icons/web-app-manifest-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Zento-Data-App/icon-512.png",
+      "src": "/icons/web-app-manifest-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Zento-Data-App/icon-maskable.png",
+      "src": "/icons/web-app-manifest-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
@@ -35,14 +35,14 @@
   ],
   "screenshots": [
     {
-      "src": "/Zento-Data-App/icon-512.png",
+      "src": "/icons/web-app-manifest-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Zento Data — Cotizador"
     },
     {
-      "src": "/Zento-Data-App/icon-512.png",
+      "src": "/icons/web-app-manifest-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
@@ -53,14 +53,14 @@
     {
       "name": "Nueva Cotización",
       "short_name": "Cotización",
-      "url": "/Zento-Data-App/?tab=cotizador",
-      "icons": [{ "src": "/Zento-Data-App/icon-192.png", "sizes": "192x192" }]
+      "url": "/?tab=cotizador",
+      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
     },
     {
       "name": "Hoja de Trabajo",
       "short_name": "Hoja",
-      "url": "/Zento-Data-App/?tab=hoja",
-      "icons": [{ "src": "/Zento-Data-App/icon-192.png", "sizes": "192x192" }]
+      "url": "/?tab=hoja",
+      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
     }
   ]
 }

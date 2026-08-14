@@ -1,8 +1,8 @@
 {
-  "id": "com.zentodata.app",
   "name": "Zento Data — Sistema de Gestión",
   "short_name": "ZentoData",
-  "description": "Sistema profesional de cotización y gestión para empresas de seguridad electrónica en Guatemala.",
+  "description": "Sistema profesional de gestión para empresas de seguridad electrónica e instalación de redes en Guatemala.",
+  "id": "com.zentodata.app",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -10,57 +10,71 @@
   "background_color": "#07090f",
   "theme_color": "#0ea5c8",
   "lang": "es-GT",
-  "dir": "ltr",
   "categories": ["business", "productivity"],
-  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/icons/web-app-manifest-192x192.png",
-      "sizes": "192x192",
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/web-app-manifest-512x512.png",
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/web-app-manifest-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ],
   "screenshots": [
     {
-      "src": "/icons/web-app-manifest-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Zento Data — Cotizador"
-    },
-    {
-      "src": "/icons/web-app-manifest-512x512.png",
-      "sizes": "512x512",
+      "src": "/screenshots/screen1.png",
+      "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Zento Data — Dashboard"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "Nueva Cotización",
-      "short_name": "Cotización",
-      "url": "/?tab=cotizador",
-      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
+      "label": "Cotizador Zento Data"
     },
     {
-      "name": "Hoja de Trabajo",
-      "short_name": "Hoja",
-      "url": "/?tab=hoja",
-      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
+      "src": "/screenshots/screen2.png",
+      "sizes": "640x1136",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Dashboard móvil"
     }
   ]
 }
