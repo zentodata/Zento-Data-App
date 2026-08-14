@@ -8,6 +8,7 @@
 
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged, type Auth, type User as FirebaseAuthUser } from "firebase/auth";
+import { getEnvFirebaseConfig } from "./firebaseConfig";
 
 const FB_PATH = "zentodata";
 
@@ -30,12 +31,21 @@ export type FirebaseWebConfig = {
 // ── Configuración ──────────────────────────────────────────────────────────
 
 export function getFbConfig(): FirebaseWebConfig | null {
+  // 1) Prioridad: variables de entorno de Vercel (misma config para todos los dispositivos)
+  const envConfig = getEnvFirebaseConfig();
+  if (envConfig) return envConfig;
+  // 2) Respaldo: configuración pegada manualmente en este navegador
   try {
     const raw = localStorage.getItem("fb_config");
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
+}
+
+/** true si la configuración viene de variables de entorno (VITE_FIREBASE_*), no de este navegador */
+export function isFbConfigFromEnv(): boolean {
+  return !!getEnvFirebaseConfig();
 }
 
 export function getFbUrl(): string {

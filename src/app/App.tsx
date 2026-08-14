@@ -9,7 +9,7 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
-import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig, parseFirebaseConfigText, type FirebaseWebConfig } from "@/app/cloudSync";
+import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig, parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig } from "@/app/cloudSync";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -719,44 +719,55 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
         </div>
       </div>
 
-      {showFb && (
-        <div className="bg-[#091520] border border-[#1a4fa8] rounded-xl p-4 mb-4 text-sm text-[#c8d8e8]">
-          <strong className="text-white">☁️ Configuración Firebase (con autenticación)</strong>
-          <p className="text-xs text-[#8090a8] mt-1.5">
-            1. Ve a la <strong>Consola de Firebase</strong> → tu proyecto → ⚙️ Configuración del proyecto → "Tus apps" → copia el objeto <code className="text-[#0ea5c8]">firebaseConfig</code>.<br />
-            2. En <strong>Authentication → Sign-in method</strong>, habilita el proveedor <strong>"Anónimo"</strong>.<br />
-            3. Pega aquí abajo el objeto completo (tal cual, con las llaves { } incluidas):
-          </p>
-          <textarea value={fbConfigText} onChange={e => setFbConfigText(e.target.value)} rows={6}
-            placeholder={'const firebaseConfig = {\n  apiKey: "...",\n  authDomain: "tu-proyecto.firebaseapp.com",\n  databaseURL: "https://tu-proyecto-default-rtdb.firebaseio.com",\n  projectId: "tu-proyecto",\n  ...\n};'}
-            className="w-full mt-2 bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-xs text-[#e8e8f0] font-mono focus:outline-none focus:border-[#0ea5c8]" />
-          {fbConfigErr && <p className="text-red-400 text-xs mt-1">{fbConfigErr}</p>}
-          <div className="flex gap-2 mt-2">
-            <Btn onClick={() => {
-              const parsed = parseFirebaseConfigText(fbConfigText);
-              if (!parsed) { setFbConfigErr("⚠️ No se encontraron apiKey, databaseURL y projectId. Verifica que hayas pegado el objeto completo."); return; }
-              setFbConfigErr("");
-              onFbConfigSaved(parsed);
-              setShowFb(false);
-              showToast("✅ Firebase configurado con autenticación — sincronizando todos los módulos");
-            }}>Guardar y conectar</Btn>
-            {fbUrl && <Btn variant="ghost" onClick={() => setShowFb(false)}>Cancelar</Btn>}
-          </div>
-          <p className="text-[10px] text-[#5a6a80] mt-2">
-            No olvides actualizar las reglas de tu Realtime Database a <code>"auth != null"</code> una vez que confirmes que la sincronización funciona.
-          </p>
+      {isFbConfigFromEnv() ? (
+        <div className="bg-[#0a1f14] border border-emerald-800/50 rounded-xl p-3 mb-4 text-xs text-emerald-300 flex items-center gap-2">
+          ☁️ Firebase configurado globalmente desde Vercel (variables de entorno) — todos los dispositivos que entren a la app usan la misma base de datos automáticamente. No necesitas configurar nada aquí.
         </div>
-      )}
-      {!showFb && fbUrl && (
-        <div className="flex items-center gap-3 mb-3">
-          <button onClick={() => setShowFb(true)} className="text-xs text-[#0ea5c8] hover:text-white flex items-center gap-1">
-            ☁️ Firebase conectado (con autenticación) — cambiar configuración
-          </button>
-          <button onClick={() => { if (confirm("¿Desconectar Firebase? Los datos dejarán de sincronizarse con la nube (seguirán en este dispositivo).")) { clearFbConfig(); onFbDisconnect(); showToast("☁️ Firebase desconectado"); } }}
-            className="text-xs text-red-400 hover:text-red-300">
-            Desconectar
-          </button>
-        </div>
+      ) : (
+        <>
+          {showFb && (
+            <div className="bg-[#091520] border border-[#1a4fa8] rounded-xl p-4 mb-4 text-sm text-[#c8d8e8]">
+              <strong className="text-white">☁️ Configuración Firebase (con autenticación)</strong>
+              <p className="text-xs text-amber-400/90 mt-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                ⚠️ Esta configuración solo se guarda en <strong>este navegador</strong>. Si abres la app desde otro celular o computadora, tendrás que repetirla ahí también — y si difiere, verás usuarios/datos distintos. Para que todos los dispositivos compartan automáticamente la misma base, pide que se configuren las variables <code>VITE_FIREBASE_*</code> en Vercel (ver guía).
+              </p>
+              <p className="text-xs text-[#8090a8] mt-2">
+                1. Ve a la <strong>Consola de Firebase</strong> → tu proyecto → ⚙️ Configuración del proyecto → "Tus apps" → copia el objeto <code className="text-[#0ea5c8]">firebaseConfig</code>.<br />
+                2. En <strong>Authentication → Sign-in method</strong>, habilita el proveedor <strong>"Anónimo"</strong>.<br />
+                3. Pega aquí abajo el objeto completo (tal cual, con las llaves {"{ }"} incluidas):
+              </p>
+              <textarea value={fbConfigText} onChange={e => setFbConfigText(e.target.value)} rows={6}
+                placeholder={'const firebaseConfig = {\n  apiKey: "...",\n  authDomain: "tu-proyecto.firebaseapp.com",\n  databaseURL: "https://tu-proyecto-default-rtdb.firebaseio.com",\n  projectId: "tu-proyecto",\n  ...\n};'}
+                className="w-full mt-2 bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-xs text-[#e8e8f0] font-mono focus:outline-none focus:border-[#0ea5c8]" />
+              {fbConfigErr && <p className="text-red-400 text-xs mt-1">{fbConfigErr}</p>}
+              <div className="flex gap-2 mt-2">
+                <Btn onClick={() => {
+                  const parsed = parseFirebaseConfigText(fbConfigText);
+                  if (!parsed) { setFbConfigErr("⚠️ No se encontraron apiKey, databaseURL y projectId. Verifica que hayas pegado el objeto completo."); return; }
+                  setFbConfigErr("");
+                  onFbConfigSaved(parsed);
+                  setShowFb(false);
+                  showToast("✅ Firebase configurado con autenticación — sincronizando todos los módulos");
+                }}>Guardar y conectar</Btn>
+                {fbUrl && <Btn variant="ghost" onClick={() => setShowFb(false)}>Cancelar</Btn>}
+              </div>
+              <p className="text-[10px] text-[#5a6a80] mt-2">
+                No olvides actualizar las reglas de tu Realtime Database a <code>"auth != null"</code> una vez que confirmes que la sincronización funciona.
+              </p>
+            </div>
+          )}
+          {!showFb && fbUrl && (
+            <div className="flex items-center gap-3 mb-3">
+              <button onClick={() => setShowFb(true)} className="text-xs text-[#0ea5c8] hover:text-white flex items-center gap-1">
+                ☁️ Firebase conectado (con autenticación) — cambiar configuración
+              </button>
+              <button onClick={() => { if (confirm("¿Desconectar Firebase? Los datos dejarán de sincronizarse con la nube (seguirán en este dispositivo).")) { clearFbConfig(); onFbDisconnect(); showToast("☁️ Firebase desconectado"); } }}
+                className="text-xs text-red-400 hover:text-red-300">
+                Desconectar
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <Card>
@@ -2184,11 +2195,7 @@ export default function App() {
   const { msg: toastMsg, show: showToast } = useToast();
 
   // Data state
-  const [users, setUsers] = useState<User[]>(() => {
-    const stored = ls<User[]>("zUsers", []);
-    if (stored.length === 0) { persist("zUsers", [ADMIN_DEFAULT]); return [ADMIN_DEFAULT]; }
-    return stored;
-  });
+  const [users, setUsers] = useState<User[]>(() => ls<User[]>("zUsers", []));
   const [catalog, setCatalog] = useState<Producto[]>(() => ls("zentocat", null) ?? DEFAULT_CATALOG);
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>(() => ls("zCotizaciones", []));
   const [ventas, setVentas] = useState<Venta[]>(() => ls("zVentas", []));
@@ -2200,6 +2207,10 @@ export default function App() {
   const [fbUrl, setFbUrlState] = useState(() => getFbUrl());
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "offline" | "error">("idle");
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  // Mientras esto sea true, la pantalla de login espera — así ningún dispositivo
+  // intenta iniciar sesión contra una lista de usuarios local desactualizada
+  // mientras Firebase todavía está trayendo la lista real desde la nube.
+  const [cloudLoading, setCloudLoading] = useState(true);
 
   function addNotif(n: Omit<Notif, "id" | "fecha" | "leida">) {
     const notif: Notif = { ...n, id: uid(), fecha: new Date().toISOString(), leida: false };
@@ -2213,25 +2224,58 @@ export default function App() {
   // Escucha el estado de sincronización con la nube
   useEffect(() => onSyncStatusChange(setSyncStatus), []);
 
-  // Al iniciar (y si hay Firebase configurado), trae todos los datos de la nube
-  // para que la app quede sincronizada entre dispositivos
+  // Al iniciar, trae todos los datos de la nube (si hay Firebase configurado)
+  // ANTES de dejar entrar al login. Firebase es la fuente de verdad para
+  // "zUsers": solo se crea el administrador de fábrica si de verdad no existe
+  // ni en la nube ni en este navegador (primer arranque absoluto).
   useEffect(() => {
-    if (!fbUrl || cloudLoaded) return;
+    if (cloudLoaded) return;
+    let cancelled = false;
     (async () => {
-      const cloud = await fetchAllCloud();
-      if (cloud.zUsers) setUsers(cloud.zUsers as User[]);
-      if (cloud.zentocat) setCatalog(cloud.zentocat as Producto[]);
-      if (cloud.zCotizaciones) setCotizaciones(cloud.zCotizaciones as Cotizacion[]);
-      if (cloud.zVentas) setVentas(cloud.zVentas as Venta[]);
-      if (cloud.zInventario) setInventario(cloud.zInventario as ItemInv[]);
-      if (cloud.zGastos) setGastos(cloud.zGastos as Gasto[]);
-      if (cloud.zPagos) setPagos((cloud.zPagos as Pago[]).map(p => ({ tipo: "cobrar", ...p })));
-      if (cloud.zMant) setMantenimientos(cloud.zMant as Mant[]);
-      if (cloud.zNotifs) setNotifs(cloud.zNotifs as Notif[]);
-      if (cloud.zHojas) lsSet("zHojas", cloud.zHojas);
-      setCloudLoaded(true);
-      if (Object.keys(cloud).length > 0) showToast("☁️ Datos sincronizados desde la nube");
+      setCloudLoading(true);
+      try {
+        if (fbUrl) {
+          const cloud = await fetchAllCloud();
+          if (cancelled) return;
+
+          const cloudUsers = cloud.zUsers as User[] | undefined;
+          if (cloudUsers && cloudUsers.length > 0) {
+            setUsers(cloudUsers); lsSet("zUsers", cloudUsers);
+          } else {
+            // La nube no tiene usuarios todavía: usa lo que haya local (o el admin
+            // de fábrica) y SÚBELO para que se vuelva la fuente compartida.
+            const localUsers = ls<User[]>("zUsers", []);
+            const seeded = localUsers.length > 0 ? localUsers : [ADMIN_DEFAULT];
+            setUsers(seeded); persist("zUsers", seeded);
+          }
+
+          if (cloud.zentocat) { setCatalog(cloud.zentocat as Producto[]); lsSet("zentocat", cloud.zentocat); }
+          if (cloud.zCotizaciones) { setCotizaciones(cloud.zCotizaciones as Cotizacion[]); lsSet("zCotizaciones", cloud.zCotizaciones); }
+          if (cloud.zVentas) { setVentas(cloud.zVentas as Venta[]); lsSet("zVentas", cloud.zVentas); }
+          if (cloud.zInventario) { setInventario(cloud.zInventario as ItemInv[]); lsSet("zInventario", cloud.zInventario); }
+          if (cloud.zGastos) { setGastos(cloud.zGastos as Gasto[]); lsSet("zGastos", cloud.zGastos); }
+          if (cloud.zPagos) { const p = (cloud.zPagos as Pago[]).map(x => ({ tipo: "cobrar" as const, ...x })); setPagos(p); lsSet("zPagos", p); }
+          if (cloud.zMant) { setMantenimientos(cloud.zMant as Mant[]); lsSet("zMant", cloud.zMant); }
+          if (cloud.zNotifs) { setNotifs(cloud.zNotifs as Notif[]); lsSet("zNotifs", cloud.zNotifs); }
+          if (cloud.zHojas) lsSet("zHojas", cloud.zHojas);
+
+          if (Object.keys(cloud).length > 0) showToast("☁️ Datos sincronizados desde la nube");
+        } else {
+          // Sin Firebase configurado en este entorno: usa (o crea) el usuario local.
+          const localUsers = ls<User[]>("zUsers", []);
+          if (localUsers.length === 0) { setUsers([ADMIN_DEFAULT]); lsSet("zUsers", [ADMIN_DEFAULT]); }
+          else setUsers(localUsers);
+        }
+      } catch (e) {
+        console.error("Error cargando datos de la nube:", e);
+        // Si falla la nube, no dejes a nadie sin poder entrar: usa lo local.
+        const localUsers = ls<User[]>("zUsers", []);
+        setUsers(localUsers.length > 0 ? localUsers : [ADMIN_DEFAULT]);
+      } finally {
+        if (!cancelled) { setCloudLoaded(true); setCloudLoading(false); }
+      }
     })();
+    return () => { cancelled = true; };
   }, [fbUrl, cloudLoaded]);
   useEffect(() => {
     const alerts: Omit<Notif, "id" | "fecha" | "leida">[] = [];
@@ -2309,7 +2353,17 @@ export default function App() {
       </AnimatePresence>
 
       {phase === "login" && (
-        <LoginScreen users={users} onLogin={handleLogin} />
+        cloudLoading ? (
+          <div className="fixed inset-0 flex items-center justify-center bg-[#07090f] px-4">
+            <div className="text-center">
+              <div className="w-10 h-10 border-2 border-[#1a2235] border-t-[#0ea5c8] rounded-full animate-spin mx-auto mb-4" />
+              <div className="text-white font-bold mb-1 text-sm">Conectando con Zento Data...</div>
+              <div className="text-[#8090a8] text-xs">Verificando datos de la nube</div>
+            </div>
+          </div>
+        ) : (
+          <LoginScreen users={users} onLogin={handleLogin} />
+        )
       )}
 
       {phase === "changepw" && currentUser && (
