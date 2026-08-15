@@ -9,6 +9,7 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
+import { descargarPdfHoja, imprimirPdfHoja, type HojaPDF } from "@/app/pdfHojaTrabajo";
 import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig, parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig } from "@/app/cloudSync";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
@@ -48,6 +49,7 @@ type Cotizacion = {
 };
 type Venta = {
   id: string; fecha: string; cliente: string; total: number; inversion: number; conFactura: boolean;
+  facturaPdf?: string; facturaNombre?: string;
 };
 type ItemInv = { id: string; nombre: string; stock: number; minimo: number; precio: number };
 type Gasto = { id: string; fecha: string; categoria: string; monto: number; descripcion: string };
@@ -1229,17 +1231,34 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
   addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ fecha: today(), cliente: "", total: 0, inversion: 0, conFactura: true });
+  const [form, setForm] = useState<{ fecha: string; cliente: string; total: number; inversion: number; conFactura: boolean; facturaPdf?: string; facturaNombre?: string }>({ fecha: today(), cliente: "", total: 0, inversion: 0, conFactura: true });
+  const [viewVenta, setViewVenta] = useState<Venta | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const totalVentas = ventas.reduce((a, v) => a + v.total, 0);
   const totalGanancia = ventas.reduce((a, v) => a + (v.total - v.inversion - (v.conFactura ? v.total * 0.05 : 0)), 0);
   const totalIva = ventas.filter(v => v.conFactura).reduce((a, v) => a + v.total * 0.05, 0);
+
+  function handleFacturaFile(file: File | null) {
+    if (!file) return;
+    if (file.type !== "application/pdf") { showToast("⚠️ Solo se aceptan archivos PDF"); return; }
+    if (file.size > 3 * 1024 * 1024) { showToast("⚠️ El PDF debe pesar menos de 3 MB"); return; }
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm(f => ({ ...f, facturaPdf: reader.result as string, facturaNombre: file.name }));
+      setUploading(false);
+    };
+    reader.onerror = () => { showToast("⚠️ No se pudo leer el archivo"); setUploading(false); };
+    reader.readAsDataURL(file);
+  }
 
   function save() {
     if (!form.cliente) { showToast("⚠️ El cliente es requerido"); return; }
     const v: Venta = { id: uid(), ...form };
     const next = [v, ...ventas];
     setVentas(next); persist("zVentas", next); setModal(false);
+    setForm({ fecha: today(), cliente: "", total: 0, inversion: 0, conFactura: true });
     addNotif({ tipo: "success", titulo: "Nueva venta registrada", mensaje: `${form.cliente} — ${fmt(form.total)}`, modulo: "ventas" });
     showToast("✅ Venta registrada");
   }
@@ -1295,15 +1314,20 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
                 {ventas.map(v => {
                   const gan = v.total - v.inversion - (v.conFactura ? v.total * 0.05 : 0);
                   return (
-                    <tr key={v.id} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] group">
+                    <tr key={v.id} onClick={() => setViewVenta(v)} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] group cursor-pointer">
                       <td className="py-2.5 px-2 text-xs text-[#8090a8]">{v.fecha}</td>
-                      <td className="py-2.5 px-2 text-sm font-medium text-white">{v.cliente}</td>
+                      <td className="py-2.5 px-2 text-sm font-medium text-white">
+                        <div className="flex items-center gap-1.5">
+                          {v.cliente}
+                          {v.facturaPdf && <FileText size={12} className="text-[#0ea5c8]" />}
+                        </div>
+                      </td>
                       <td className="py-2.5 px-2 text-sm font-bold text-[#0ea5c8]">{fmt(v.total)}</td>
                       <td className="py-2.5 px-2 text-xs text-[#8090a8]">{fmt(v.inversion)}</td>
                       <td className="py-2.5 px-2 text-sm font-bold text-emerald-400">{fmt(gan)}</td>
                       <td className="py-2.5 px-2 text-xs text-yellow-400">{v.conFactura ? fmt(v.total * 0.05) : "—"}</td>
                       <td className="py-2.5 px-2 text-right">
-                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); persist("zVentas", n); showToast("🗑️ Eliminada"); } }}
+                        <button onClick={(e) => { e.stopPropagation(); if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); persist("zVentas", n); showToast("🗑️ Eliminada"); } }}
                           className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
@@ -1326,11 +1350,58 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
             <input type="checkbox" checked={form.conFactura} onChange={e => setForm(f => ({ ...f, conFactura: e.target.checked }))} className="accent-[#0ea5c8]" />
             Con Factura (IVA 5%)
           </label>
+          <div>
+            <label className="text-xs font-semibold text-[#8090a8] mb-1.5 block">Factura (PDF, opcional)</label>
+            {form.facturaPdf ? (
+              <div className="flex items-center justify-between bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-[#c8d8e8] truncate">
+                  <FileText size={13} className="text-[#0ea5c8] flex-shrink-0" />
+                  <span className="truncate">{form.facturaNombre}</span>
+                </div>
+                <button onClick={() => setForm(f => ({ ...f, facturaPdf: undefined, facturaNombre: undefined }))} className="text-red-400 hover:bg-red-500/10 p-1 rounded flex-shrink-0"><X size={13} /></button>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 border border-dashed border-[#1a2235] rounded-lg py-3 text-xs text-[#8090a8] hover:border-[#0ea5c8] hover:text-[#0ea5c8] cursor-pointer transition-colors">
+                <Upload size={13} /> {uploading ? "Cargando..." : "Subir factura en PDF"}
+                <input type="file" accept="application/pdf" className="hidden" onChange={e => handleFacturaFile(e.target.files?.[0] || null)} />
+              </label>
+            )}
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
             <Btn onClick={save}>Guardar</Btn>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={!!viewVenta} onClose={() => setViewVenta(null)} title={viewVenta ? `Venta — ${viewVenta.cliente}` : ""} width="max-w-lg">
+        {viewVenta && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div><span className="text-[#8090a8]">Fecha:</span> <span className="text-white">{viewVenta.fecha}</span></div>
+              <div><span className="text-[#8090a8]">Con factura:</span> <span className="text-white">{viewVenta.conFactura ? "Sí" : "No"}</span></div>
+              <div><span className="text-[#8090a8]">Total:</span> <span className="text-[#0ea5c8] font-bold">{fmt(viewVenta.total)}</span></div>
+              <div><span className="text-[#8090a8]">Inversión:</span> <span className="text-white">{fmt(viewVenta.inversion)}</span></div>
+              <div><span className="text-[#8090a8]">Ganancia:</span> <span className="text-emerald-400 font-bold">{fmt(viewVenta.total - viewVenta.inversion - (viewVenta.conFactura ? viewVenta.total * 0.05 : 0))}</span></div>
+              {viewVenta.conFactura && <div><span className="text-[#8090a8]">IVA (5%):</span> <span className="text-yellow-400">{fmt(viewVenta.total * 0.05)}</span></div>}
+            </div>
+            <div className="pt-2 border-t border-[#1a2235]">
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-2">Factura</div>
+              {viewVenta.facturaPdf ? (
+                <div className="space-y-2">
+                  <iframe src={viewVenta.facturaPdf} className="w-full h-72 rounded-lg border border-[#1a2235] bg-white" title="Factura PDF" />
+                  <a href={viewVenta.facturaPdf} download={viewVenta.facturaNombre || "factura.pdf"}
+                    className="flex items-center justify-center gap-2 w-full py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                    style={{ background: "linear-gradient(135deg,#1a4fa8,#0ea5c8)" }}>
+                    <Download size={14} /> Descargar factura
+                  </a>
+                </div>
+              ) : (
+                <p className="text-xs text-[#8090a8]">No se adjuntó factura para esta venta.</p>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
@@ -1668,7 +1739,9 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
   const [obs, setObs] = useState("");
   const [equipos, setEquipos] = useState<{ id: string; desc: string; marca: string; spec: string }[]>([]);
   const [patron, setPatron] = useState<number[]>([]);
-  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string })[]>(ls("zHojas", []));
+  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string; equipos: { id: string; desc: string; marca: string; spec: string }[]; patron: number[] })[]>(ls("zHojas", []));
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewHoja, setViewHoja] = useState<typeof saved[number] | null>(null);
 
   function buscarCot(val: string) {
     setF(x => ({ ...x, orden: val }));
@@ -1683,22 +1756,47 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
 
   function guardar() {
     if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
-    const hoja = { ...f, servicios, desc, obs, id: uid() };
-    const next = [hoja, ...saved];
-    setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
-    addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
+    if (editingId) {
+      const next = saved.map(h => h.id === editingId ? { ...f, servicios, desc, obs, equipos, patron, id: editingId } : h);
+      setSaved(next); persist("zHojas", next); showToast("✅ Hoja actualizada");
+      addNotif({ tipo: "success", titulo: "Hoja de trabajo actualizada", mensaje: `${f.nombre} — ${f.fecha}`, modulo: "hojatrabajo" });
+      setEditingId(null);
+    } else {
+      const hoja = { ...f, servicios, desc, obs, equipos, patron, id: uid() };
+      const next = [hoja, ...saved];
+      setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
+      addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
+    }
   }
 
-  function limpiar() { setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" }); setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); }
+  function limpiar() {
+    setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" });
+    setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); setEditingId(null);
+  }
+
+  function editar(h: typeof saved[number]) {
+    setF({ nombre: h.nombre, direccion: h.direccion, telefono: h.telefono, email: h.email, orden: h.orden, fecha: h.fecha, tecnico: h.tecnico });
+    setServicios(h.servicios); setDesc(h.desc); setObs(h.obs); setEquipos(h.equipos || []); setPatron(h.patron || []);
+    setEditingId(h.id);
+    showToast("✏️ Editando hoja — los cambios se guardan con \"Guardar\"");
+  }
+
+  function toPdfData(h: { nombre: string; direccion: string; telefono: string; email: string; orden: string; fecha: string; tecnico: string; servicios: string[]; desc: string; obs: string; equipos: { desc: string; marca: string; spec: string }[]; patron: number[]; id: string }): HojaPDF {
+    return { id: h.id, nombre: h.nombre, direccion: h.direccion, telefono: h.telefono, email: h.email, orden: h.orden, fecha: h.fecha, tecnico: h.tecnico, servicios: h.servicios, desc: h.desc, obs: h.obs, equipos: h.equipos, patron: h.patron };
+  }
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div><h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2><p className="text-sm text-[#8090a8] mt-0.5">Genera hojas de servicio técnico</p></div>
-        <div className="flex gap-2">
-          <Btn onClick={guardar}>💾 Guardar</Btn>
-          <Btn variant="ghost" onClick={limpiar}><RefreshCw size={13} /> Limpiar</Btn>
-          <Btn variant="ghost" onClick={() => window.print()}>🖨️ Imprimir</Btn>
+        <div>
+          <h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2>
+          <p className="text-sm text-[#8090a8] mt-0.5">{editingId ? "Editando hoja guardada" : "Genera hojas de servicio técnico"}</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Btn onClick={guardar}>💾 {editingId ? "Actualizar" : "Guardar"}</Btn>
+          <Btn variant="ghost" onClick={limpiar}><RefreshCw size={13} /> {editingId ? "Cancelar edición" : "Limpiar"}</Btn>
+          <Btn variant="ghost" onClick={() => descargarPdfHoja(toPdfData({ ...f, servicios, desc, obs, equipos, patron, id: editingId || uid() }))}><Download size={13} /> PDF</Btn>
+          <Btn variant="ghost" onClick={() => imprimirPdfHoja(toPdfData({ ...f, servicios, desc, obs, equipos, patron, id: editingId || uid() }))}>🖨️ Imprimir</Btn>
         </div>
       </div>
 
@@ -1798,18 +1896,75 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
           <CardTitle>Hojas Guardadas</CardTitle>
           <div className="space-y-2">
             {saved.slice(0, 5).map(h => (
-              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235]">
-                <div>
-                  <div className="text-sm font-semibold text-white">{h.nombre}</div>
+              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235] gap-2">
+                <button onClick={() => setViewHoja(h)} className="text-left flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-white truncate">{h.nombre}</div>
                   <div className="text-xs text-[#8090a8]">{h.fecha} · {h.servicios.join(", ") || "Sin servicios"}</div>
+                </button>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => setViewHoja(h)} title="Ver" className="text-[#0ea5c8] hover:bg-[#0ea5c8]/10 p-1.5 rounded"><Eye size={13} /></button>
+                  <button onClick={() => editar(h)} title="Editar" className="text-[#0ea5c8] hover:bg-[#0ea5c8]/10 p-1.5 rounded"><Edit2 size={13} /></button>
+                  <button onClick={() => descargarPdfHoja(toPdfData(h))} title="Descargar PDF" className="text-[#0ea5c8] hover:bg-[#0ea5c8]/10 p-1.5 rounded"><Download size={13} /></button>
+                  <button onClick={() => { if (confirm("¿Eliminar esta hoja?")) { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); if (editingId === h.id) limpiar(); } }}
+                    title="Eliminar" className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
                 </div>
-                <button onClick={() => { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); }}
-                  className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
         </Card>
       )}
+
+      <Modal open={!!viewHoja} onClose={() => setViewHoja(null)} title={viewHoja ? `Hoja — ${viewHoja.nombre}` : ""} width="max-w-xl">
+        {viewHoja && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div><span className="text-[#8090a8]">Fecha:</span> <span className="text-white">{viewHoja.fecha}</span></div>
+              <div><span className="text-[#8090a8]">Técnico:</span> <span className="text-white">{viewHoja.tecnico || "-"}</span></div>
+              <div><span className="text-[#8090a8]">Teléfono:</span> <span className="text-white">{viewHoja.telefono || "-"}</span></div>
+              <div><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{viewHoja.direccion || "-"}</span></div>
+            </div>
+            {viewHoja.servicios.length > 0 && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Servicios</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {viewHoja.servicios.map(s => <Badge key={s} className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20">{s}</Badge>)}
+                </div>
+              </div>
+            )}
+            {viewHoja.desc && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Descripción</div>
+                <p className="text-[#c8d8e8] text-xs whitespace-pre-wrap">{viewHoja.desc}</p>
+              </div>
+            )}
+            {(viewHoja.equipos || []).filter(e => e.desc || e.marca || e.spec).length > 0 && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Equipos</div>
+                <div className="space-y-1">
+                  {viewHoja.equipos.filter(e => e.desc || e.marca || e.spec).map(e => (
+                    <div key={e.id} className="text-xs text-[#c8d8e8] bg-[#060810] rounded-lg px-2 py-1.5 border border-[#1a2235]">
+                      {e.desc || "-"} {e.marca && `· ${e.marca}`} {e.spec && `· ${e.spec}`}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(viewHoja.patron || []).length > 0 && (
+              <div className="text-xs text-[#8090a8]">Patrón de desbloqueo definido: <span className="text-[#0ea5c8] font-bold">{viewHoja.patron.length} puntos</span></div>
+            )}
+            {viewHoja.obs && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Observaciones</div>
+                <p className="text-[#c8d8e8] text-xs whitespace-pre-wrap">{viewHoja.obs}</p>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#1a2235]">
+              <Btn variant="ghost" onClick={() => { editar(viewHoja); setViewHoja(null); }}><Edit2 size={13} /> Editar</Btn>
+              <Btn onClick={() => descargarPdfHoja(toPdfData(viewHoja))}><Download size={13} /> Descargar PDF</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
