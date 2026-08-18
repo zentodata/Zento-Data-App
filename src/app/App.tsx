@@ -1933,24 +1933,38 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
 
 // ─── PAGE: REDES (Parte 1 — dashboard + tabla, formularios en la siguiente parte) ──
 
-function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
-  redes: ServicioRed[]; cotizaciones: Cotizacion[]; ventas: Venta[];
-  showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
+function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToast, addNotif }: {
+  redes: ServicioRed[]; setRedes: (r: ServicioRed[]) => void; cotizaciones: Cotizacion[]; ventas: Venta[];
+  currentUser: User; showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filtro, setFiltro] = useState<"todos" | EstadoRed>("todos");
+  const [modal, setModal] = useState(false);
+  const [detalle, setDetalle] = useState<ServicioRed | null>(null);
+  const [tipoOtro, setTipoOtro] = useState(false);
 
-  // Clientes que ya existen en Cotizador/Ventas — se usarán para el buscador
-  // del formulario "+ Nueva instalación" en la siguiente parte, para que
-  // Redes no dependa de clientes creados por separado.
+  const emptyForm = {
+    clienteNombre: "", clienteTelefono: "", tipoServicio: "WiFi Mesh", proveedor: "", plan: "",
+    estado: "activo" as EstadoRed, fechaInstalacion: today(), descripcion: "",
+  };
+  const [form, setForm] = useState(emptyForm);
+  const [equipos, setEquipos] = useState<EquipoRed[]>([{ id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "" }]);
+  const [clienteSugerencias, setClienteSugerencias] = useState(false);
+
+  // Clientes que ya existen en Cotizador/Ventas — alimentan el buscador del
+  // formulario, para no tener que crear clientes por separado en Redes.
   const clientesConocidos = Array.from(
     new Map(
       [
         ...cotizaciones.map(c => [c.cliente.toLowerCase(), { nombre: c.cliente, telefono: c.whatsapp }] as const),
         ...ventas.map(v => [v.cliente.toLowerCase(), { nombre: v.cliente, telefono: "" }] as const),
+        ...redes.map(r => [r.clienteNombre.toLowerCase(), { nombre: r.clienteNombre, telefono: r.clienteTelefono }] as const),
       ]
     ).values()
   );
+  const sugerenciasFiltradas = form.clienteNombre.length > 0
+    ? clientesConocidos.filter(c => c.nombre.toLowerCase().includes(form.clienteNombre.toLowerCase())).slice(0, 6)
+    : [];
 
   const filtered = redes.filter(r =>
     (filtro === "todos" || r.estado === filtro) &&
@@ -1962,6 +1976,55 @@ function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
   const incidencias = redes.filter(r => r.estado === "incidencia").length;
   const enMantenimiento = redes.filter(r => r.estado === "mantenimiento").length;
 
+  function nextCodigoCliente(nombre: string): string {
+    const existente = redes.find(r => r.clienteNombre.toLowerCase() === nombre.toLowerCase());
+    if (existente) return existente.codigoCliente;
+    const nums = redes.map(r => parseInt(r.codigoCliente.replace("ZD-", ""), 10)).filter(n => !isNaN(n));
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `ZD-${String(next).padStart(4, "0")}`;
+  }
+
+  function abrirNuevo() {
+    setForm(emptyForm);
+    setEquipos([{ id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "" }]);
+    setTipoOtro(false);
+    setModal(true);
+  }
+
+  function addEquipo() { setEquipos([...equipos, { id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "" }]); }
+  function delEquipo(id: string) { setEquipos(equipos.filter(e => e.id !== id)); }
+  function updEquipo(id: string, k: keyof EquipoRed, v: string) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
+
+  function guardar() {
+    if (!form.clienteNombre) { showToast("⚠️ El cliente es requerido"); return; }
+    if (!form.tipoServicio) { showToast("⚠️ El tipo de servicio es requerido"); return; }
+    const codigo = nextCodigoCliente(form.clienteNombre);
+    const ahora = new Date().toISOString();
+    const equiposValidos = equipos.filter(e => e.modelo.trim());
+    const nuevo: ServicioRed = {
+      id: uid(),
+      codigoCliente: codigo,
+      clienteNombre: form.clienteNombre,
+      clienteTelefono: form.clienteTelefono,
+      tipoServicio: form.tipoServicio,
+      proveedor: form.proveedor,
+      plan: form.plan,
+      estado: form.estado,
+      equipos: equiposValidos,
+      historial: [{
+        id: uid(), fecha: form.fechaInstalacion, tipo: "instalacion",
+        tecnico: currentUser.nombre,
+        descripcion: form.descripcion || `Instalación de ${form.tipoServicio}${equiposValidos.length ? ` — ${equiposValidos.map(e => e.modelo).join(", ")}` : ""}.`,
+      }],
+      fechaInstalacion: form.fechaInstalacion,
+      ultimaModificacion: ahora,
+    };
+    const next = [nuevo, ...redes];
+    setRedes(next); persist("zRedes", next); setModal(false);
+    addNotif({ tipo: "success", titulo: "Nueva instalación de red", mensaje: `${codigo} — ${nuevo.clienteNombre} (${nuevo.tipoServicio})`, modulo: "redes" });
+    showToast("✅ Instalación registrada");
+  }
+
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
@@ -1970,7 +2033,7 @@ function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
           <p className="text-sm text-[#8090a8] mt-0.5">Instalaciones, equipos e infraestructura de red de tus clientes</p>
         </div>
         <div className="flex gap-2">
-          <Btn variant="ghost" onClick={() => showToast("🚧 El formulario de nueva instalación llega en la siguiente parte")}><Plus size={14} /> Nueva instalación</Btn>
+          <Btn onClick={abrirNuevo}><Plus size={14} /> Nueva instalación</Btn>
         </div>
       </div>
 
@@ -2003,7 +2066,7 @@ function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
         {filtered.length === 0 ? (
           <EmptyState icon="🌐"
             msg={redes.length === 0
-              ? "Sin servicios de red registrados todavía. El formulario para dar de alta instalaciones llega en la siguiente parte."
+              ? "Sin servicios de red registrados todavía. Usa \"+ Nueva instalación\" para agregar el primero."
               : "Ningún servicio coincide con la búsqueda o el filtro."} />
         ) : (
           <div className="overflow-x-auto">
@@ -2015,7 +2078,7 @@ function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
               </tr></thead>
               <tbody>
                 {filtered.map(r => (
-                  <tr key={r.id} className="border-b border-[#0f1220] hover:bg-[#0a0d1a]">
+                  <tr key={r.id} onClick={() => setDetalle(r)} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] cursor-pointer">
                     <td className="py-2.5 px-3 text-xs text-[#0ea5c8] font-mono">{r.codigoCliente}</td>
                     <td className="py-2.5 px-3 text-sm font-medium text-white">{r.clienteNombre}</td>
                     <td className="py-2.5 px-3 text-xs text-[#c8d8e8]">{r.tipoServicio}</td>
@@ -2030,11 +2093,145 @@ function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
         )}
       </Card>
 
-      {clientesConocidos.length > 0 && redes.length === 0 && (
-        <p className="text-xs text-[#5a6a80] mt-3 text-center">
-          {clientesConocidos.length} cliente(s) de Cotizador/Ventas listos para conectarse cuando agregues el primer servicio de red.
-        </p>
-      )}
+      {/* ── Modal: Nueva instalación ── */}
+      <Modal open={modal} onClose={() => setModal(false)} title="Nueva Instalación de Red" width="max-w-xl">
+        <div className="space-y-4">
+          <div className="relative">
+            <Input label="Cliente *" value={form.clienteNombre}
+              onChange={e => { setForm(f => ({ ...f, clienteNombre: e.target.value })); setClienteSugerencias(true); }}
+              onFocus={() => setClienteSugerencias(true)}
+              onBlur={() => setTimeout(() => setClienteSugerencias(false), 150)}
+              placeholder="Escribe para buscar un cliente existente..." />
+            {clienteSugerencias && sugerenciasFiltradas.length > 0 && (
+              <div className="absolute z-10 left-0 right-0 mt-1 bg-[#0b0e1a] border border-[#1a2235] rounded-lg shadow-xl overflow-hidden">
+                {sugerenciasFiltradas.map(c => (
+                  <button key={c.nombre} type="button"
+                    onClick={() => { setForm(f => ({ ...f, clienteNombre: c.nombre, clienteTelefono: c.telefono || f.clienteTelefono })); setClienteSugerencias(false); }}
+                    className="w-full text-left px-3 py-2 text-sm text-[#e8e8f0] hover:bg-[#0ea5c8]/10 border-b border-[#1a2235] last:border-0">
+                    {c.nombre} {c.telefono && <span className="text-xs text-[#8090a8]">· {c.telefono}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-[#5a6a80] mt-1">Se buscan clientes ya existentes en Cotizador y Ventas. Si es nuevo, solo escribe su nombre.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Teléfono" value={form.clienteTelefono} onChange={e => setForm(f => ({ ...f, clienteTelefono: e.target.value }))} />
+            <Input label="Fecha de instalación" type="date" value={form.fechaInstalacion} onChange={e => setForm(f => ({ ...f, fechaInstalacion: e.target.value }))} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Tipo de servicio *" value={tipoOtro ? "Otro" : form.tipoServicio} onChange={e => {
+              if (e.target.value === "Otro") { setTipoOtro(true); setForm(f => ({ ...f, tipoServicio: "" })); }
+              else { setTipoOtro(false); setForm(f => ({ ...f, tipoServicio: e.target.value })); }
+            }}>
+              {TIPOS_SERVICIO_RED.map(t => <option key={t}>{t}</option>)}
+              <option value="Otro">Otro...</option>
+            </Select>
+            <Select label="Estado inicial" value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value as EstadoRed }))}>
+              {(Object.keys(ESTADO_RED_LABELS) as EstadoRed[]).map(s => <option key={s} value={s}>{ESTADO_RED_LABELS[s]}</option>)}
+            </Select>
+          </div>
+          {tipoOtro && (
+            <Input label="Nuevo tipo de servicio *" placeholder="Escribe el tipo de servicio" value={form.tipoServicio} onChange={e => setForm(f => ({ ...f, tipoServicio: e.target.value }))} />
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Proveedor" placeholder="Ej. Tigo, Claro..." value={form.proveedor} onChange={e => setForm(f => ({ ...f, proveedor: e.target.value }))} />
+            <Input label="Plan / Velocidad" placeholder="Ej. 300 Mbps" value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))} />
+          </div>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-2">Equipos instalados</label>
+            <div className="space-y-2">
+              {equipos.map(eq => (
+                <div key={eq.id} className="grid grid-cols-[1fr_1fr_1fr_30px] gap-1.5 items-center">
+                  <input value={eq.modelo} onChange={e => updEquipo(eq.id, "modelo", e.target.value)} placeholder="Modelo (ej. Deco S7)"
+                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0" />
+                  <input value={eq.ubicacion || ""} onChange={e => updEquipo(eq.id, "ubicacion", e.target.value)} placeholder="Ubicación"
+                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0" />
+                  <input value={eq.serial || ""} onChange={e => updEquipo(eq.id, "serial", e.target.value)} placeholder="Serial (opc.)"
+                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0" />
+                  <button onClick={() => delEquipo(eq.id)} className="text-red-400 hover:bg-red-500/10 rounded p-1.5"><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <button onClick={addEquipo} className="w-full mt-2 py-1.5 border border-dashed border-[#1a2235] rounded-lg text-[#0ea5c8] text-xs font-semibold hover:border-[#0ea5c8] transition-colors">
+              + Agregar equipo
+            </button>
+          </div>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Descripción del trabajo</label>
+            <textarea value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} rows={3}
+              placeholder="Se instalaron 3 Deco S7, se configuró la red Mesh, se realizaron pruebas de cobertura..."
+              className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
+            <Btn onClick={guardar}>💾 Guardar Instalación</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal: Ficha del servicio ── */}
+      <Modal open={!!detalle} onClose={() => setDetalle(null)} title={detalle ? `${detalle.codigoCliente} — ${detalle.tipoServicio}` : ""} width="max-w-lg">
+        {detalle && (
+          <div className="space-y-4 text-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-white font-bold text-base">{detalle.clienteNombre}</div>
+                {detalle.clienteTelefono && <div className="text-xs text-[#8090a8]">{detalle.clienteTelefono}</div>}
+              </div>
+              <Badge className={ESTADO_RED_COLORS[detalle.estado]}>{ESTADO_RED_LABELS[detalle.estado]}</Badge>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs bg-[#060810] border border-[#1a2235] rounded-lg p-3">
+              <div><span className="text-[#8090a8]">Proveedor:</span> <span className="text-white">{detalle.proveedor || "-"}</span></div>
+              <div><span className="text-[#8090a8]">Plan:</span> <span className="text-white">{detalle.plan || "-"}</span></div>
+              <div><span className="text-[#8090a8]">Instalación:</span> <span className="text-white">{detalle.fechaInstalacion}</span></div>
+              <div><span className="text-[#8090a8]">Código:</span> <span className="text-[#0ea5c8] font-mono">{detalle.codigoCliente}</span></div>
+            </div>
+
+            {detalle.equipos.length > 0 && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Equipos ({detalle.equipos.length})</div>
+                <div className="space-y-1.5">
+                  {detalle.equipos.map(e => (
+                    <div key={e.id} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-1.5">
+                      <span className="text-white font-medium">{e.modelo}</span>
+                      {e.ubicacion && <span className="text-[#8090a8]"> · {e.ubicacion}</span>}
+                      {e.serial && <span className="text-[#5a6a80]"> · S/N {e.serial}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Historial</div>
+              <div className="space-y-2">
+                {detalle.historial.slice().reverse().map(h => (
+                  <div key={h.id} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20 uppercase">{h.tipo}</Badge>
+                      <span className="text-[#5a6a80]">{new Date(h.fecha).toLocaleDateString("es-GT")}</span>
+                    </div>
+                    <p className="text-[#c8d8e8]">{h.descripcion}</p>
+                    <p className="text-[#5a6a80] mt-1">Técnico: {h.tecnico}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-[10px] text-[#5a6a80] text-center pt-1">
+              🚧 Registrar modificaciones, cambiar estado y usar equipos del inventario llega en la siguiente parte.
+            </p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -2519,7 +2716,7 @@ export default function App() {
       case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} {...props} />;
       case "hojatrabajo": return <HojaTrabajoPage cotizaciones={cotizaciones} {...props} />;
       case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} {...props} />;
-      case "redes": return <RedesPage redes={redes} cotizaciones={cotizaciones} ventas={ventas} {...props} />;
+      case "redes": return <RedesPage redes={redes} setRedes={setRedes} cotizaciones={cotizaciones} ventas={ventas} currentUser={currentUser} {...props} />;
       case "usuarios": return <UsuariosPage users={users} setUsers={setUsers} currentUser={currentUser} {...props} />;
       default: return null;
     }
