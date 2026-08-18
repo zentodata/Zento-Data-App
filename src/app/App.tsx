@@ -4,7 +4,7 @@ import {
   Bell, X, Menu, Plus, Trash2, Edit2, Copy, Search, LogOut, Users, Shield,
   AlertTriangle, CheckCircle2, Upload, Download, FileText, Package,
   TrendingUp, Wallet, DollarSign, Wrench, ClipboardList, Eye, EyeOff,
-  RefreshCw, Info
+  RefreshCw, Info, Wifi
 } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
@@ -26,7 +26,7 @@ type Role = "admin" | "tecnico" | "vendedor" | "visor";
 type Permisos = {
   cotizador: boolean; seguimiento: boolean; catalogo: boolean; ventas: boolean;
   inventario: boolean; gastos: boolean; pagos: boolean; hojatrabajo: boolean;
-  mantenimiento: boolean; usuarios: boolean;
+  mantenimiento: boolean; usuarios: boolean; redes: boolean;
 };
 type User = {
   uid: string; nombre: string; email: string; rol: Role;
@@ -62,6 +62,28 @@ type Mant = {
   proveedor: string; notas: string; frecuenciaDias: number; completado: boolean;
 };
 
+// ── Redes (Parte 1: solo tipos + dashboard/tabla — los formularios de alta
+// llegan en la siguiente parte) ──
+type EquipoRed = {
+  id: string; modelo: string; marca?: string; serial?: string; mac?: string;
+  ip?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
+  garantia?: string;
+};
+type HistorialRed = {
+  id: string; fecha: string;
+  tipo: "instalacion" | "modificacion" | "reemplazo" | "mantenimiento" | "incidencia" | "baja";
+  tecnico: string; descripcion: string;
+};
+type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
+type ServicioRed = {
+  id: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
+  tipoServicio: string; proveedor: string; plan: string;
+  estado: EstadoRed;
+  equipos: EquipoRed[];
+  historial: HistorialRed[];
+  fechaInstalacion: string; ultimaModificacion: string;
+};
+
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -81,10 +103,10 @@ const ROLE_LABELS: Record<Role, string> = {
   admin: "Administrador", tecnico: "Técnico", vendedor: "Vendedor", visor: "Solo Vista",
 };
 const ROLE_DEFAULT_PERMISOS: Record<Role, Partial<Permisos>> = {
-  admin: { cotizador: true, seguimiento: true, catalogo: true, ventas: true, inventario: true, gastos: true, pagos: true, hojatrabajo: true, mantenimiento: true, usuarios: true },
-  tecnico: { hojatrabajo: true, mantenimiento: true, inventario: true, catalogo: false, ventas: false, gastos: false, pagos: false, cotizador: false, seguimiento: false, usuarios: false },
-  vendedor: { cotizador: true, seguimiento: true, catalogo: true, ventas: true, pagos: true, inventario: false, gastos: false, hojatrabajo: false, mantenimiento: false, usuarios: false },
-  visor: { cotizador: false, seguimiento: true, catalogo: true, ventas: true, inventario: true, gastos: false, pagos: false, hojatrabajo: false, mantenimiento: true, usuarios: false },
+  admin: { cotizador: true, seguimiento: true, catalogo: true, ventas: true, inventario: true, redes: true, gastos: true, pagos: true, hojatrabajo: true, mantenimiento: true, usuarios: true },
+  tecnico: { hojatrabajo: true, mantenimiento: true, inventario: true, redes: true, catalogo: false, ventas: false, gastos: false, pagos: false, cotizador: false, seguimiento: false, usuarios: false },
+  vendedor: { cotizador: true, seguimiento: true, catalogo: true, ventas: true, pagos: true, inventario: false, redes: false, gastos: false, hojatrabajo: false, mantenimiento: false, usuarios: false },
+  visor: { cotizador: false, seguimiento: true, catalogo: true, ventas: true, inventario: true, redes: true, gastos: false, pagos: false, hojatrabajo: false, mantenimiento: true, usuarios: false },
 };
 
 const MODULOS: { id: keyof Permisos; label: string; icon: React.ReactNode }[] = [
@@ -93,6 +115,7 @@ const MODULOS: { id: keyof Permisos; label: string; icon: React.ReactNode }[] = 
   { id: "catalogo", label: "Catálogo", icon: <Package size={14} /> },
   { id: "ventas", label: "Ventas", icon: <TrendingUp size={14} /> },
   { id: "inventario", label: "Inventario", icon: <Wallet size={14} /> },
+  { id: "redes", label: "Redes", icon: <Wifi size={14} /> },
   { id: "gastos", label: "Gastos", icon: <DollarSign size={14} /> },
   { id: "pagos", label: "Pagos", icon: <DollarSign size={14} /> },
   { id: "hojatrabajo", label: "Hoja de Trabajo", icon: <ClipboardList size={14} /> },
@@ -106,11 +129,31 @@ const TABS = [
   { id: "catalogo", label: "Catálogo", icon: "📦" },
   { id: "ventas", label: "Ventas", icon: "💹" },
   { id: "inventario", label: "Inventario", icon: "🏦" },
+  { id: "redes", label: "Redes", icon: "🌐" },
   { id: "gastos", label: "Gastos", icon: "💰" },
   { id: "pagos", label: "Pagos", icon: "💳" },
   { id: "hojatrabajo", label: "Hoja de Trabajo", icon: "📄" },
   { id: "mantenimiento", label: "Mantenimiento", icon: "🔧" },
   { id: "usuarios", label: "Usuarios", icon: "👥" },
+];
+
+const ESTADO_RED_LABELS: Record<EstadoRed, string> = {
+  activo: "Activo", pendiente: "Pendiente", programado: "Programado",
+  mantenimiento: "En Mantenimiento", incidencia: "Incidencia", suspendido: "Suspendido", baja: "Baja",
+};
+const ESTADO_RED_COLORS: Record<EstadoRed, string> = {
+  activo: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
+  pendiente: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
+  programado: "text-[#0ea5c8] bg-[#0ea5c8]/10 border-[#0ea5c8]/20",
+  mantenimiento: "text-amber-400 bg-amber-400/10 border-amber-400/20",
+  incidencia: "text-red-400 bg-red-400/10 border-red-400/20",
+  suspendido: "text-[#8090a8] bg-[#8090a8]/10 border-[#8090a8]/20",
+  baja: "text-[#8090a8] bg-[#8090a8]/10 border-[#8090a8]/20",
+};
+const TIPOS_SERVICIO_RED = [
+  "WiFi Mesh", "Cableado estructurado", "Router", "Switch", "Access Point",
+  "Enlace inalámbrico", "VPN", "Red empresarial", "Administración remota",
+  "Mantenimiento de red", "Cámaras IP", "NVR", "Otros servicios de infraestructura",
 ];
 
 const SERVICES = [
@@ -1888,7 +1931,113 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
   );
 }
 
-// ─── PAGE: USUARIOS ───────────────────────────────────────────────────────────
+// ─── PAGE: REDES (Parte 1 — dashboard + tabla, formularios en la siguiente parte) ──
+
+function RedesPage({ redes, cotizaciones, ventas, showToast, addNotif }: {
+  redes: ServicioRed[]; cotizaciones: Cotizacion[]; ventas: Venta[];
+  showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [filtro, setFiltro] = useState<"todos" | EstadoRed>("todos");
+
+  // Clientes que ya existen en Cotizador/Ventas — se usarán para el buscador
+  // del formulario "+ Nueva instalación" en la siguiente parte, para que
+  // Redes no dependa de clientes creados por separado.
+  const clientesConocidos = Array.from(
+    new Map(
+      [
+        ...cotizaciones.map(c => [c.cliente.toLowerCase(), { nombre: c.cliente, telefono: c.whatsapp }] as const),
+        ...ventas.map(v => [v.cliente.toLowerCase(), { nombre: v.cliente, telefono: "" }] as const),
+      ]
+    ).values()
+  );
+
+  const filtered = redes.filter(r =>
+    (filtro === "todos" || r.estado === filtro) &&
+    (!search || (r.clienteNombre + r.codigoCliente + r.tipoServicio + r.equipos.map(e => e.modelo).join(" ")).toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const activos = redes.filter(r => r.estado === "activo").length;
+  const pendientes = redes.filter(r => r.estado === "pendiente" || r.estado === "programado").length;
+  const incidencias = redes.filter(r => r.estado === "incidencia").length;
+  const enMantenimiento = redes.filter(r => r.estado === "mantenimiento").length;
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white">🌐 Servicios de Red</h2>
+          <p className="text-sm text-[#8090a8] mt-0.5">Instalaciones, equipos e infraestructura de red de tus clientes</p>
+        </div>
+        <div className="flex gap-2">
+          <Btn variant="ghost" onClick={() => showToast("🚧 El formulario de nueva instalación llega en la siguiente parte")}><Plus size={14} /> Nueva instalación</Btn>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <StatCard label="Activos" value={activos} color="#10b981" />
+        <StatCard label="Pendientes" value={pendientes} color="#eab308" />
+        <StatCard label="En Mantenimiento" value={enMantenimiento} color="#f59e0b" />
+        <StatCard label="Incidencias" value={incidencias} color="#ef4444" />
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8090a8]" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar cliente, código, servicio, equipo..."
+            className="w-full bg-[#0b0e1a] border border-[#1a2235] rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap mb-3">
+        {(["todos", "activo", "pendiente", "mantenimiento", "incidencia"] as const).map(f => (
+          <button key={f} onClick={() => setFiltro(f)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+              ${filtro === f ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+            {f === "todos" ? "Todos" : ESTADO_RED_LABELS[f]}
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        {filtered.length === 0 ? (
+          <EmptyState icon="🌐"
+            msg={redes.length === 0
+              ? "Sin servicios de red registrados todavía. El formulario para dar de alta instalaciones llega en la siguiente parte."
+              : "Ningún servicio coincide con la búsqueda o el filtro."} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px]">
+              <thead><tr className="border-b border-[#1a2235]">
+                {["Código","Cliente","Servicio","Equipo","Estado","Última modificación"].map(h => (
+                  <th key={h} className="text-left py-2.5 px-3 text-[10px] font-bold text-[#8090a8] uppercase tracking-wider">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {filtered.map(r => (
+                  <tr key={r.id} className="border-b border-[#0f1220] hover:bg-[#0a0d1a]">
+                    <td className="py-2.5 px-3 text-xs text-[#0ea5c8] font-mono">{r.codigoCliente}</td>
+                    <td className="py-2.5 px-3 text-sm font-medium text-white">{r.clienteNombre}</td>
+                    <td className="py-2.5 px-3 text-xs text-[#c8d8e8]">{r.tipoServicio}</td>
+                    <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.equipos.map(e => e.modelo).join(", ") || "—"}</td>
+                    <td className="py-2.5 px-3"><Badge className={ESTADO_RED_COLORS[r.estado]}>{ESTADO_RED_LABELS[r.estado]}</Badge></td>
+                    <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.ultimaModificacion ? new Date(r.ultimaModificacion).toLocaleDateString("es-GT") : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {clientesConocidos.length > 0 && redes.length === 0 && (
+        <p className="text-xs text-[#5a6a80] mt-3 text-center">
+          {clientesConocidos.length} cliente(s) de Cotizador/Ventas listos para conectarse cuando agregues el primer servicio de red.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
   users: User[]; setUsers: (u: User[]) => void; currentUser: User;
@@ -2232,6 +2381,7 @@ export default function App() {
   const [gastos, setGastos] = useState<Gasto[]>(() => ls("zGastos", []));
   const [pagos, setPagos] = useState<Pago[]>(() => ls("zPagos", []));
   const [mantenimientos, setMantenimientos] = useState<Mant[]>(() => ls("zMant", []));
+  const [redes, setRedes] = useState<ServicioRed[]>(() => ls("zRedes", []));
   const [notifs, setNotifs] = useState<Notif[]>(() => ls("zNotifs", []));
   const [fbUrl, setFbUrlState] = useState(() => getFbUrl());
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "offline" | "error">("idle");
@@ -2301,6 +2451,7 @@ export default function App() {
           if (cloud.zGastos) { setGastos(cloud.zGastos as Gasto[]); lsSet("zGastos", cloud.zGastos); }
           if (cloud.zPagos) { const p = (cloud.zPagos as Pago[]).map(x => ({ tipo: "cobrar" as const, ...x })); setPagos(p); lsSet("zPagos", p); }
           if (cloud.zMant) { setMantenimientos(cloud.zMant as Mant[]); lsSet("zMant", cloud.zMant); }
+          if (cloud.zRedes) { setRedes(cloud.zRedes as ServicioRed[]); lsSet("zRedes", cloud.zRedes); }
           if (cloud.zNotifs) { setNotifs(cloud.zNotifs as Notif[]); lsSet("zNotifs", cloud.zNotifs); }
           if (cloud.zHojas) lsSet("zHojas", cloud.zHojas);
           if (Object.keys(cloud).length > 0) showToast("☁️ Datos sincronizados desde la nube");
@@ -2368,6 +2519,7 @@ export default function App() {
       case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} {...props} />;
       case "hojatrabajo": return <HojaTrabajoPage cotizaciones={cotizaciones} {...props} />;
       case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} {...props} />;
+      case "redes": return <RedesPage redes={redes} cotizaciones={cotizaciones} ventas={ventas} {...props} />;
       case "usuarios": return <UsuariosPage users={users} setUsers={setUsers} currentUser={currentUser} {...props} />;
       default: return null;
     }

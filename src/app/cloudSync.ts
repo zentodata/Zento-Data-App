@@ -25,7 +25,7 @@ const USERS_PATH = "users";
 /** Colecciones de datos de negocio que se sincronizan bajo /zentodata */
 export const CLOUD_KEYS = [
   "zentocat", "zCotizaciones", "zVentas", "zInventario",
-  "zGastos", "zPagos", "zMant", "zNotifs", "zHojas",
+  "zGastos", "zPagos", "zMant", "zNotifs", "zHojas", "zRedes",
 ] as const;
 
 export type FirebaseWebConfig = {
