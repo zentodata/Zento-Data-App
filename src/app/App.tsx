@@ -9,8 +9,12 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
-import { descargarPdfHoja, imprimirPdfHoja, type HojaPDF } from "@/app/pdfHojaTrabajo";
-import { persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig, parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig } from "@/app/cloudSync";
+import {
+  persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig,
+  parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig,
+  onAuthChange, getCurrentAuthUser, signInEmail, signOutFb, sendPasswordReset, createUserEmail,
+  getUserProfile, setUserProfile, fetchAllUserProfiles,
+} from "@/app/cloudSync";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -25,7 +29,7 @@ type Permisos = {
   mantenimiento: boolean; usuarios: boolean;
 };
 type User = {
-  id: string; nombre: string; email: string; password: string; rol: Role;
+  uid: string; nombre: string; email: string; rol: Role;
   permisos: Permisos; activo: boolean; creado: string; ultimoAcceso: string;
 };
 type Notif = {
@@ -49,7 +53,6 @@ type Cotizacion = {
 };
 type Venta = {
   id: string; fecha: string; cliente: string; total: number; inversion: number; conFactura: boolean;
-  facturaPdf?: string; facturaNombre?: string;
 };
 type ItemInv = { id: string; nombre: string; stock: number; minimo: number; precio: number };
 type Gasto = { id: string; fecha: string; categoria: string; monto: number; descripcion: string };
@@ -69,16 +72,10 @@ const today = () => new Date().toISOString().split("T")[0];
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
-const ADMIN_DEFAULT: User = {
-  id: "admin-001", nombre: "Administrador", email: "admin@zentodata.com",
-  password: "zento2024", rol: "admin", activo: true,
-  creado: new Date().toISOString(), ultimoAcceso: new Date().toISOString(),
-  permisos: {
-    cotizador: true, seguimiento: true, catalogo: true, ventas: true,
-    inventario: true, gastos: true, pagos: true, hojatrabajo: true,
-    mantenimiento: true, usuarios: true,
-  },
-};
+// Los permisos por defecto para la primera cuenta administradora se definen
+// más abajo (ROLE_DEFAULT_PERMISOS.admin) — ya no existe una contraseña de
+// fábrica escrita en el código. La primera cuenta se crea con Firebase
+// Authentication (ver LoginScreen / bootstrap de administrador).
 
 const ROLE_LABELS: Record<Role, string> = {
   admin: "Administrador", tecnico: "Técnico", vendedor: "Vendedor", visor: "Solo Vista",
@@ -343,17 +340,34 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
 
 // ─── LOGIN SCREEN ────────────────────────────────────────────────────────────
 
-function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (u: User) => void }) {
+function LoginScreen({ onLogin, fbReady }: { onLogin: (email: string, password: string) => Promise<void>; fbReady: boolean }) {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const u = users.find(x => x.email === email && x.password === pw && x.activo);
-    if (u) onLogin({ ...u, ultimoAcceso: new Date().toISOString() });
-    else setErr("Credenciales incorrectas o usuario inactivo");
+    if (!fbReady) { setErr("Firebase todavía no está configurado en este entorno. Contacta al administrador."); return; }
+    setErr(""); setLoading(true);
+    try {
+      await onLogin(email, pw);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || "";
+      const mensajes: Record<string, string> = {
+        "auth/invalid-credential": "Email o contraseña incorrectos.",
+        "auth/wrong-password": "Email o contraseña incorrectos.",
+        "auth/user-not-found": "No existe una cuenta con ese email.",
+        "auth/invalid-email": "El email no es válido.",
+        "auth/user-disabled": "Esta cuenta fue deshabilitada.",
+        "auth/too-many-requests": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
+        "auth/network-request-failed": "Sin conexión a internet.",
+      };
+      setErr(mensajes[code] || "No se pudo iniciar sesión. Verifica tus credenciales.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -380,9 +394,9 @@ function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (u: User) => 
             </div>
           </div>
           {err && <p className="text-red-400 text-xs">{err}</p>}
-          <button type="submit" className="w-full py-2.5 rounded-xl font-bold text-white text-sm transition-opacity hover:opacity-90"
+          <button type="submit" disabled={loading} className="w-full py-2.5 rounded-xl font-bold text-white text-sm transition-opacity hover:opacity-90 disabled:opacity-60"
             style={{ background: "linear-gradient(135deg,#1a4fa8,#0ea5c8)" }}>
-            Ingresar al sistema
+            {loading ? "Ingresando..." : "Ingresar al sistema"}
           </button>
         </form>
       </motion.div>
@@ -390,64 +404,9 @@ function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (u: User) => 
   );
 }
 
-// ─── CAMBIO OBLIGATORIO DE CONTRASEÑA DE FÁBRICA ──────────────────────────────
-
-function ForceChangePasswordScreen({ userName, onChanged, onLogout }: {
-  userName: string; onChanged: (newPassword: string) => void; onLogout: () => void;
-}) {
-  const [pw1, setPw1] = useState("");
-  const [pw2, setPw2] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [err, setErr] = useState("");
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (pw1.length < 8) { setErr("Usa al menos 8 caracteres"); return; }
-    if (pw1 === "zento2024") { setErr("Elige una contraseña distinta a la de fábrica"); return; }
-    if (pw1 !== pw2) { setErr("Las contraseñas no coinciden"); return; }
-    onChanged(pw1);
-  }
-
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[#07090f] px-4">
-      <motion.div className="w-full max-w-sm" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <div className="flex flex-col items-center mb-6 text-center">
-          <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
-            <AlertTriangle size={26} className="text-amber-400" />
-          </div>
-          <h1 className="text-xl font-black text-white">Actualiza tu contraseña</h1>
-          <p className="text-[#8090a8] text-xs mt-2 leading-relaxed">
-            Hola {userName}, tu cuenta todavía usa la <strong className="text-amber-400">contraseña de fábrica</strong>.
-            Por seguridad, debes elegir una nueva antes de continuar — esta contraseña queda visible en el código
-            fuente público del proyecto, así que cualquiera podría usarla.
-          </p>
-        </div>
-        <form onSubmit={submit} className="bg-[#0b0e1a] border border-[#1a2235] rounded-2xl p-6 space-y-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider">Nueva contraseña</label>
-            <div className="relative">
-              <input type={showPw ? "text" : "password"} value={pw1} onChange={e => setPw1(e.target.value)}
-                className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-[#e8e8f0] text-sm focus:outline-none focus:border-[#0ea5c8] transition-colors pr-10"
-                placeholder="Mínimo 8 caracteres" required />
-              <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8090a8] hover:text-white">
-                {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-          </div>
-          <Input label="Confirmar contraseña" type={showPw ? "text" : "password"} value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Repetir contraseña" required />
-          {err && <p className="text-red-400 text-xs">{err}</p>}
-          <button type="submit" className="w-full py-2.5 rounded-xl font-bold text-white text-sm transition-opacity hover:opacity-90"
-            style={{ background: "linear-gradient(135deg,#1a4fa8,#0ea5c8)" }}>
-            Guardar y continuar
-          </button>
-          <button type="button" onClick={onLogout} className="w-full text-center text-xs text-[#8090a8] hover:text-white">
-            Cerrar sesión
-          </button>
-        </form>
-      </motion.div>
-    </div>
-  );
-}
+// ─── (Ya no existe pantalla de cambio de contraseña de fábrica: Firebase
+// Authentication administra las contraseñas de forma segura, y las cuentas
+// nuevas se crean directamente con la contraseña que el administrador elige.) ──
 
 // ─── NOTIFICATION PANEL ───────────────────────────────────────────────────────
 
@@ -1231,34 +1190,17 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
   addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState<{ fecha: string; cliente: string; total: number; inversion: number; conFactura: boolean; facturaPdf?: string; facturaNombre?: string }>({ fecha: today(), cliente: "", total: 0, inversion: 0, conFactura: true });
-  const [viewVenta, setViewVenta] = useState<Venta | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [form, setForm] = useState({ fecha: today(), cliente: "", total: 0, inversion: 0, conFactura: true });
 
   const totalVentas = ventas.reduce((a, v) => a + v.total, 0);
   const totalGanancia = ventas.reduce((a, v) => a + (v.total - v.inversion - (v.conFactura ? v.total * 0.05 : 0)), 0);
   const totalIva = ventas.filter(v => v.conFactura).reduce((a, v) => a + v.total * 0.05, 0);
-
-  function handleFacturaFile(file: File | null) {
-    if (!file) return;
-    if (file.type !== "application/pdf") { showToast("⚠️ Solo se aceptan archivos PDF"); return; }
-    if (file.size > 3 * 1024 * 1024) { showToast("⚠️ El PDF debe pesar menos de 3 MB"); return; }
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setForm(f => ({ ...f, facturaPdf: reader.result as string, facturaNombre: file.name }));
-      setUploading(false);
-    };
-    reader.onerror = () => { showToast("⚠️ No se pudo leer el archivo"); setUploading(false); };
-    reader.readAsDataURL(file);
-  }
 
   function save() {
     if (!form.cliente) { showToast("⚠️ El cliente es requerido"); return; }
     const v: Venta = { id: uid(), ...form };
     const next = [v, ...ventas];
     setVentas(next); persist("zVentas", next); setModal(false);
-    setForm({ fecha: today(), cliente: "", total: 0, inversion: 0, conFactura: true });
     addNotif({ tipo: "success", titulo: "Nueva venta registrada", mensaje: `${form.cliente} — ${fmt(form.total)}`, modulo: "ventas" });
     showToast("✅ Venta registrada");
   }
@@ -1314,20 +1256,15 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
                 {ventas.map(v => {
                   const gan = v.total - v.inversion - (v.conFactura ? v.total * 0.05 : 0);
                   return (
-                    <tr key={v.id} onClick={() => setViewVenta(v)} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] group cursor-pointer">
+                    <tr key={v.id} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] group">
                       <td className="py-2.5 px-2 text-xs text-[#8090a8]">{v.fecha}</td>
-                      <td className="py-2.5 px-2 text-sm font-medium text-white">
-                        <div className="flex items-center gap-1.5">
-                          {v.cliente}
-                          {v.facturaPdf && <FileText size={12} className="text-[#0ea5c8]" />}
-                        </div>
-                      </td>
+                      <td className="py-2.5 px-2 text-sm font-medium text-white">{v.cliente}</td>
                       <td className="py-2.5 px-2 text-sm font-bold text-[#0ea5c8]">{fmt(v.total)}</td>
                       <td className="py-2.5 px-2 text-xs text-[#8090a8]">{fmt(v.inversion)}</td>
                       <td className="py-2.5 px-2 text-sm font-bold text-emerald-400">{fmt(gan)}</td>
                       <td className="py-2.5 px-2 text-xs text-yellow-400">{v.conFactura ? fmt(v.total * 0.05) : "—"}</td>
                       <td className="py-2.5 px-2 text-right">
-                        <button onClick={(e) => { e.stopPropagation(); if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); persist("zVentas", n); showToast("🗑️ Eliminada"); } }}
+                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); persist("zVentas", n); showToast("🗑️ Eliminada"); } }}
                           className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
@@ -1350,58 +1287,11 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
             <input type="checkbox" checked={form.conFactura} onChange={e => setForm(f => ({ ...f, conFactura: e.target.checked }))} className="accent-[#0ea5c8]" />
             Con Factura (IVA 5%)
           </label>
-          <div>
-            <label className="text-xs font-semibold text-[#8090a8] mb-1.5 block">Factura (PDF, opcional)</label>
-            {form.facturaPdf ? (
-              <div className="flex items-center justify-between bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2 text-xs text-[#c8d8e8] truncate">
-                  <FileText size={13} className="text-[#0ea5c8] flex-shrink-0" />
-                  <span className="truncate">{form.facturaNombre}</span>
-                </div>
-                <button onClick={() => setForm(f => ({ ...f, facturaPdf: undefined, facturaNombre: undefined }))} className="text-red-400 hover:bg-red-500/10 p-1 rounded flex-shrink-0"><X size={13} /></button>
-              </div>
-            ) : (
-              <label className="flex items-center justify-center gap-2 border border-dashed border-[#1a2235] rounded-lg py-3 text-xs text-[#8090a8] hover:border-[#0ea5c8] hover:text-[#0ea5c8] cursor-pointer transition-colors">
-                <Upload size={13} /> {uploading ? "Cargando..." : "Subir factura en PDF"}
-                <input type="file" accept="application/pdf" className="hidden" onChange={e => handleFacturaFile(e.target.files?.[0] || null)} />
-              </label>
-            )}
-          </div>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
             <Btn onClick={save}>Guardar</Btn>
           </div>
         </div>
-      </Modal>
-
-      <Modal open={!!viewVenta} onClose={() => setViewVenta(null)} title={viewVenta ? `Venta — ${viewVenta.cliente}` : ""} width="max-w-lg">
-        {viewVenta && (
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div><span className="text-[#8090a8]">Fecha:</span> <span className="text-white">{viewVenta.fecha}</span></div>
-              <div><span className="text-[#8090a8]">Con factura:</span> <span className="text-white">{viewVenta.conFactura ? "Sí" : "No"}</span></div>
-              <div><span className="text-[#8090a8]">Total:</span> <span className="text-[#0ea5c8] font-bold">{fmt(viewVenta.total)}</span></div>
-              <div><span className="text-[#8090a8]">Inversión:</span> <span className="text-white">{fmt(viewVenta.inversion)}</span></div>
-              <div><span className="text-[#8090a8]">Ganancia:</span> <span className="text-emerald-400 font-bold">{fmt(viewVenta.total - viewVenta.inversion - (viewVenta.conFactura ? viewVenta.total * 0.05 : 0))}</span></div>
-              {viewVenta.conFactura && <div><span className="text-[#8090a8]">IVA (5%):</span> <span className="text-yellow-400">{fmt(viewVenta.total * 0.05)}</span></div>}
-            </div>
-            <div className="pt-2 border-t border-[#1a2235]">
-              <div className="text-xs font-bold text-[#8090a8] uppercase mb-2">Factura</div>
-              {viewVenta.facturaPdf ? (
-                <div className="space-y-2">
-                  <iframe src={viewVenta.facturaPdf} className="w-full h-72 rounded-lg border border-[#1a2235] bg-white" title="Factura PDF" />
-                  <a href={viewVenta.facturaPdf} download={viewVenta.facturaNombre || "factura.pdf"}
-                    className="flex items-center justify-center gap-2 w-full py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                    style={{ background: "linear-gradient(135deg,#1a4fa8,#0ea5c8)" }}>
-                    <Download size={14} /> Descargar factura
-                  </a>
-                </div>
-              ) : (
-                <p className="text-xs text-[#8090a8]">No se adjuntó factura para esta venta.</p>
-              )}
-            </div>
-          </div>
-        )}
       </Modal>
     </div>
   );
@@ -1739,9 +1629,7 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
   const [obs, setObs] = useState("");
   const [equipos, setEquipos] = useState<{ id: string; desc: string; marca: string; spec: string }[]>([]);
   const [patron, setPatron] = useState<number[]>([]);
-  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string; equipos: { id: string; desc: string; marca: string; spec: string }[]; patron: number[] })[]>(ls("zHojas", []));
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [viewHoja, setViewHoja] = useState<typeof saved[number] | null>(null);
+  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string })[]>(ls("zHojas", []));
 
   function buscarCot(val: string) {
     setF(x => ({ ...x, orden: val }));
@@ -1756,47 +1644,22 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
 
   function guardar() {
     if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
-    if (editingId) {
-      const next = saved.map(h => h.id === editingId ? { ...f, servicios, desc, obs, equipos, patron, id: editingId } : h);
-      setSaved(next); persist("zHojas", next); showToast("✅ Hoja actualizada");
-      addNotif({ tipo: "success", titulo: "Hoja de trabajo actualizada", mensaje: `${f.nombre} — ${f.fecha}`, modulo: "hojatrabajo" });
-      setEditingId(null);
-    } else {
-      const hoja = { ...f, servicios, desc, obs, equipos, patron, id: uid() };
-      const next = [hoja, ...saved];
-      setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
-      addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
-    }
+    const hoja = { ...f, servicios, desc, obs, id: uid() };
+    const next = [hoja, ...saved];
+    setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
+    addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
   }
 
-  function limpiar() {
-    setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" });
-    setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); setEditingId(null);
-  }
-
-  function editar(h: typeof saved[number]) {
-    setF({ nombre: h.nombre, direccion: h.direccion, telefono: h.telefono, email: h.email, orden: h.orden, fecha: h.fecha, tecnico: h.tecnico });
-    setServicios(h.servicios); setDesc(h.desc); setObs(h.obs); setEquipos(h.equipos || []); setPatron(h.patron || []);
-    setEditingId(h.id);
-    showToast("✏️ Editando hoja — los cambios se guardan con \"Guardar\"");
-  }
-
-  function toPdfData(h: { nombre: string; direccion: string; telefono: string; email: string; orden: string; fecha: string; tecnico: string; servicios: string[]; desc: string; obs: string; equipos: { desc: string; marca: string; spec: string }[]; patron: number[]; id: string }): HojaPDF {
-    return { id: h.id, nombre: h.nombre, direccion: h.direccion, telefono: h.telefono, email: h.email, orden: h.orden, fecha: h.fecha, tecnico: h.tecnico, servicios: h.servicios, desc: h.desc, obs: h.obs, equipos: h.equipos, patron: h.patron };
-  }
+  function limpiar() { setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" }); setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); }
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2>
-          <p className="text-sm text-[#8090a8] mt-0.5">{editingId ? "Editando hoja guardada" : "Genera hojas de servicio técnico"}</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Btn onClick={guardar}>💾 {editingId ? "Actualizar" : "Guardar"}</Btn>
-          <Btn variant="ghost" onClick={limpiar}><RefreshCw size={13} /> {editingId ? "Cancelar edición" : "Limpiar"}</Btn>
-          <Btn variant="ghost" onClick={() => descargarPdfHoja(toPdfData({ ...f, servicios, desc, obs, equipos, patron, id: editingId || uid() }))}><Download size={13} /> PDF</Btn>
-          <Btn variant="ghost" onClick={() => imprimirPdfHoja(toPdfData({ ...f, servicios, desc, obs, equipos, patron, id: editingId || uid() }))}>🖨️ Imprimir</Btn>
+        <div><h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2><p className="text-sm text-[#8090a8] mt-0.5">Genera hojas de servicio técnico</p></div>
+        <div className="flex gap-2">
+          <Btn onClick={guardar}>💾 Guardar</Btn>
+          <Btn variant="ghost" onClick={limpiar}><RefreshCw size={13} /> Limpiar</Btn>
+          <Btn variant="ghost" onClick={() => window.print()}>🖨️ Imprimir</Btn>
         </div>
       </div>
 
@@ -1896,75 +1759,18 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
           <CardTitle>Hojas Guardadas</CardTitle>
           <div className="space-y-2">
             {saved.slice(0, 5).map(h => (
-              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235] gap-2">
-                <button onClick={() => setViewHoja(h)} className="text-left flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-white truncate">{h.nombre}</div>
+              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235]">
+                <div>
+                  <div className="text-sm font-semibold text-white">{h.nombre}</div>
                   <div className="text-xs text-[#8090a8]">{h.fecha} · {h.servicios.join(", ") || "Sin servicios"}</div>
-                </button>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => setViewHoja(h)} title="Ver" className="text-[#0ea5c8] hover:bg-[#0ea5c8]/10 p-1.5 rounded"><Eye size={13} /></button>
-                  <button onClick={() => editar(h)} title="Editar" className="text-[#0ea5c8] hover:bg-[#0ea5c8]/10 p-1.5 rounded"><Edit2 size={13} /></button>
-                  <button onClick={() => descargarPdfHoja(toPdfData(h))} title="Descargar PDF" className="text-[#0ea5c8] hover:bg-[#0ea5c8]/10 p-1.5 rounded"><Download size={13} /></button>
-                  <button onClick={() => { if (confirm("¿Eliminar esta hoja?")) { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); if (editingId === h.id) limpiar(); } }}
-                    title="Eliminar" className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
                 </div>
+                <button onClick={() => { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); }}
+                  className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
         </Card>
       )}
-
-      <Modal open={!!viewHoja} onClose={() => setViewHoja(null)} title={viewHoja ? `Hoja — ${viewHoja.nombre}` : ""} width="max-w-xl">
-        {viewHoja && (
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div><span className="text-[#8090a8]">Fecha:</span> <span className="text-white">{viewHoja.fecha}</span></div>
-              <div><span className="text-[#8090a8]">Técnico:</span> <span className="text-white">{viewHoja.tecnico || "-"}</span></div>
-              <div><span className="text-[#8090a8]">Teléfono:</span> <span className="text-white">{viewHoja.telefono || "-"}</span></div>
-              <div><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{viewHoja.direccion || "-"}</span></div>
-            </div>
-            {viewHoja.servicios.length > 0 && (
-              <div>
-                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Servicios</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {viewHoja.servicios.map(s => <Badge key={s} className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20">{s}</Badge>)}
-                </div>
-              </div>
-            )}
-            {viewHoja.desc && (
-              <div>
-                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Descripción</div>
-                <p className="text-[#c8d8e8] text-xs whitespace-pre-wrap">{viewHoja.desc}</p>
-              </div>
-            )}
-            {(viewHoja.equipos || []).filter(e => e.desc || e.marca || e.spec).length > 0 && (
-              <div>
-                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Equipos</div>
-                <div className="space-y-1">
-                  {viewHoja.equipos.filter(e => e.desc || e.marca || e.spec).map(e => (
-                    <div key={e.id} className="text-xs text-[#c8d8e8] bg-[#060810] rounded-lg px-2 py-1.5 border border-[#1a2235]">
-                      {e.desc || "-"} {e.marca && `· ${e.marca}`} {e.spec && `· ${e.spec}`}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {(viewHoja.patron || []).length > 0 && (
-              <div className="text-xs text-[#8090a8]">Patrón de desbloqueo definido: <span className="text-[#0ea5c8] font-bold">{viewHoja.patron.length} puntos</span></div>
-            )}
-            {viewHoja.obs && (
-              <div>
-                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Observaciones</div>
-                <p className="text-[#c8d8e8] text-xs whitespace-pre-wrap">{viewHoja.obs}</p>
-              </div>
-            )}
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#1a2235]">
-              <Btn variant="ghost" onClick={() => { editar(viewHoja); setViewHoja(null); }}><Edit2 size={13} /> Editar</Btn>
-              <Btn onClick={() => descargarPdfHoja(toPdfData(viewHoja))}><Download size={13} /> Descargar PDF</Btn>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }
@@ -2090,8 +1896,21 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
 }) {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState<Partial<User & { passwordConfirm: string }>>({});
+  const [form, setForm] = useState<Partial<User & { password: string; passwordConfirm: string }>>({});
   const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoadingList(true);
+      const profiles = await fetchAllUserProfiles<Omit<User, "uid">>();
+      if (profiles) {
+        setUsers(Object.entries(profiles).map(([uidKey, p]) => ({ ...p, uid: uidKey })));
+      }
+      setLoadingList(false);
+    })();
+  }, []);
 
   if (currentUser.rol !== "admin") {
     return (
@@ -2103,6 +1922,8 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
     );
   }
 
+  const adminsActivos = users.filter(u => u.rol === "admin" && u.activo);
+
   function openCreate() {
     setEditing(null);
     setForm({ nombre: "", email: "", password: "", passwordConfirm: "", rol: "vendedor", activo: true, permisos: { ...ROLE_DEFAULT_PERMISOS["vendedor"] } as Permisos });
@@ -2111,7 +1932,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
 
   function openEdit(u: User) {
     setEditing(u);
-    setForm({ ...u, passwordConfirm: u.password });
+    setForm({ ...u, password: "", passwordConfirm: "" });
     setModal(true);
   }
 
@@ -2123,41 +1944,80 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
     setForm(f => ({ ...f, permisos: { ...(f.permisos || {}), [k]: !(f.permisos as Permisos)[k] } as Permisos }));
   }
 
-  function save() {
+  async function save() {
     if (!form.nombre || !form.email) { showToast("⚠️ Nombre y email son requeridos"); return; }
-    if (!editing && !form.password) { showToast("⚠️ La contraseña es requerida"); return; }
-    if (form.password !== form.passwordConfirm) { showToast("⚠️ Las contraseñas no coinciden"); return; }
-    if (!editing && users.find(u => u.email === form.email)) { showToast("⚠️ El email ya está en uso"); return; }
-
-    const u: User = {
-      id: editing?.id || uid(),
-      nombre: form.nombre!,
-      email: form.email!,
-      password: form.password || editing?.password || "",
-      rol: form.rol as Role,
-      permisos: form.permisos as Permisos,
-      activo: form.activo !== false,
-      creado: editing?.creado || new Date().toISOString(),
-      ultimoAcceso: editing?.ultimoAcceso || "",
-    };
-
-    const next = editing ? users.map(x => x.id === editing.id ? u : x) : [...users, u];
-    setUsers(next); persist("zUsers", next); setModal(false);
-    if (!editing) addNotif({ tipo: "info", titulo: "Nuevo usuario creado", mensaje: `${u.nombre} (${ROLE_LABELS[u.rol]}) fue agregado al sistema`, modulo: "usuarios" });
-    showToast(editing ? "✅ Usuario actualizado" : "✅ Usuario creado");
+    if (!editing) {
+      if (!form.password || form.password.length < 6) { showToast("⚠️ La contraseña debe tener al menos 6 caracteres"); return; }
+      if (form.password !== form.passwordConfirm) { showToast("⚠️ Las contraseñas no coinciden"); return; }
+    }
+    setLoading(true);
+    try {
+      if (editing) {
+        const profile = {
+          nombre: form.nombre!, email: editing.email, rol: form.rol as Role,
+          permisos: form.permisos as Permisos, activo: form.activo !== false,
+          creado: editing.creado, ultimoAcceso: editing.ultimoAcceso,
+        };
+        const ok = await setUserProfile(editing.uid, profile);
+        if (!ok) { showToast("⚠️ No se pudo guardar (revisa la conexión con Firebase)"); setLoading(false); return; }
+        const next = users.map(x => x.uid === editing.uid ? { ...profile, uid: editing.uid } : x);
+        setUsers(next);
+        showToast("✅ Usuario actualizado");
+      } else {
+        const newUid = await createUserEmail(form.email!, form.password!);
+        const profile = {
+          nombre: form.nombre!, email: form.email!, rol: form.rol as Role,
+          permisos: form.permisos as Permisos, activo: form.activo !== false,
+          creado: new Date().toISOString(), ultimoAcceso: "",
+        };
+        await setUserProfile(newUid, profile);
+        const next = [...users, { ...profile, uid: newUid }];
+        setUsers(next);
+        addNotif({ tipo: "info", titulo: "Nuevo usuario creado", mensaje: `${profile.nombre} (${ROLE_LABELS[profile.rol]}) fue agregado al sistema`, modulo: "usuarios" });
+        showToast("✅ Usuario creado");
+      }
+      setModal(false);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || "";
+      const mensajes: Record<string, string> = {
+        "auth/email-already-in-use": "Ese email ya tiene una cuenta en Firebase.",
+        "auth/invalid-email": "El email no es válido.",
+        "auth/weak-password": "La contraseña es demasiado débil (mínimo 6 caracteres).",
+      };
+      showToast("⚠️ " + (mensajes[code] || "No se pudo crear el usuario"));
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function toggleActivo(id: string) {
-    if (id === "admin-001") { showToast("⚠️ No se puede desactivar el administrador principal"); return; }
-    const next = users.map(u => u.id === id ? { ...u, activo: !u.activo } : u);
-    setUsers(next); persist("zUsers", next); showToast("✅ Estado actualizado");
+  async function toggleActivo(u: User) {
+    if (u.rol === "admin" && u.activo && adminsActivos.length <= 1) { showToast("⚠️ No puedes desactivar al único administrador activo"); return; }
+    const profile = { nombre: u.nombre, email: u.email, rol: u.rol, permisos: u.permisos, activo: !u.activo, creado: u.creado, ultimoAcceso: u.ultimoAcceso };
+    const ok = await setUserProfile(u.uid, profile);
+    if (!ok) { showToast("⚠️ No se pudo actualizar"); return; }
+    const next = users.map(x => x.uid === u.uid ? { ...profile, uid: u.uid } : x);
+    setUsers(next); showToast("✅ Estado actualizado");
   }
 
-  function del(id: string) {
-    if (id === "admin-001") { showToast("⚠️ No se puede eliminar el administrador principal"); return; }
-    if (!confirm("¿Eliminar este usuario?")) return;
-    const next = users.filter(u => u.id !== id);
-    setUsers(next); persist("zUsers", next); showToast("🗑️ Usuario eliminado");
+  async function enviarResetPassword(u: User) {
+    try {
+      await sendPasswordReset(u.email);
+      showToast(`✅ Correo de restablecimiento enviado a ${u.email}`);
+    } catch {
+      showToast("⚠️ No se pudo enviar el correo de restablecimiento");
+    }
+  }
+
+  async function del(u: User) {
+    if (u.rol === "admin" && adminsActivos.length <= 1) { showToast("⚠️ No puedes eliminar al único administrador activo"); return; }
+    if (!confirm(`¿Quitar el acceso de ${u.nombre}? Esto elimina su perfil de Zento Data — su cuenta de inicio de sesión en Firebase seguirá existiendo, pero ya no podrá usar la app. Para eliminar la cuenta por completo, hazlo desde Firebase Console → Authentication.`)) return;
+    // No se puede borrar la cuenta de Firebase Auth de otro usuario desde el cliente
+    // (requiere Admin SDK). Aquí solo se retira su perfil, lo que revoca el acceso
+    // porque las reglas de la base exigen que exista un perfil activo.
+    const ok = await setUserProfile(u.uid, null);
+    if (!ok) { showToast("⚠️ No se pudo eliminar"); return; }
+    const next = users.filter(x => x.uid !== u.uid);
+    setUsers(next); showToast("🗑️ Acceso revocado");
   }
 
   return (
@@ -2178,6 +2038,9 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
       </div>
 
       <Card>
+        {loadingList ? (
+          <div className="text-center py-10 text-sm text-[#8090a8]">Cargando usuarios...</div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
             <thead><tr className="border-b border-[#1a2235]">
@@ -2189,8 +2052,9 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
               {users.map(u => {
                 const rolCss = u.rol === "admin" ? "text-[#0ea5c8] bg-[#0ea5c8]/10 border-[#0ea5c8]/20" : u.rol === "tecnico" ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" : u.rol === "vendedor" ? "text-yellow-400 bg-yellow-400/10 border-yellow-400/20" : "text-[#8090a8] bg-[#8090a8]/10 border-[#8090a8]/20";
                 const modCount = Object.values(u.permisos).filter(Boolean).length;
+                const esUnicoAdmin = u.rol === "admin" && adminsActivos.length <= 1;
                 return (
-                  <tr key={u.id} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] group">
+                  <tr key={u.uid} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] group">
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
@@ -2199,7 +2063,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
                         </div>
                         <div>
                           <div className="text-sm font-semibold text-white">{u.nombre}</div>
-                          {u.id === currentUser.id && <div className="text-[10px] text-[#0ea5c8]">← tú</div>}
+                          {u.uid === currentUser.uid && <div className="text-[10px] text-[#0ea5c8]">← tú</div>}
                         </div>
                       </div>
                     </td>
@@ -2212,7 +2076,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
                       {u.ultimoAcceso ? new Date(u.ultimoAcceso).toLocaleDateString("es-GT") : "—"}
                     </td>
                     <td className="py-3 px-3">
-                      <button onClick={() => toggleActivo(u.id)}>
+                      <button onClick={() => toggleActivo(u)} disabled={esUnicoAdmin && u.activo}>
                         <Badge className={u.activo ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20 cursor-pointer" : "text-red-400 bg-red-400/10 border-red-400/20 cursor-pointer"}>
                           {u.activo ? "Activo" : "Inactivo"}
                         </Badge>
@@ -2220,9 +2084,10 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
                     </td>
                     <td className="py-3 px-3 text-right">
                       <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => openEdit(u)} className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><Edit2 size={13} /></button>
-                        {u.id !== "admin-001" && (
-                          <button onClick={() => del(u.id)} className="p-1.5 text-[#8090a8] hover:text-red-400 rounded hover:bg-red-500/10"><Trash2 size={13} /></button>
+                        <button onClick={() => enviarResetPassword(u)} title="Enviar restablecimiento de contraseña" className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><RefreshCw size={13} /></button>
+                        <button onClick={() => openEdit(u)} title="Editar" className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><Edit2 size={13} /></button>
+                        {!esUnicoAdmin && (
+                          <button onClick={() => del(u)} title="Quitar acceso" className="p-1.5 text-[#8090a8] hover:text-red-400 rounded hover:bg-red-500/10"><Trash2 size={13} /></button>
                         )}
                       </div>
                     </td>
@@ -2232,6 +2097,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
             </tbody>
           </table>
         </div>
+        )}
       </Card>
 
       <Modal open={modal} onClose={() => setModal(false)} title={editing ? "Editar Usuario" : "Crear Usuario"} width="max-w-xl">
@@ -2240,20 +2106,26 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
             <Input label="Nombre completo *" value={form.nombre || ""} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} />
             <Input label="Email *" type="email" value={form.email || ""} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} disabled={!!editing} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1 relative">
-              <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider">{editing ? "Nueva Contraseña (dejar vacío para mantener)" : "Contraseña *"}</label>
-              <div className="relative">
-                <input type={showPw ? "text" : "password"} value={form.password || ""} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-[#e8e8f0] text-sm focus:outline-none focus:border-[#0ea5c8] pr-10"
-                  placeholder={editing ? "••••••••" : "Contraseña"} />
-                <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8090a8]">
-                  {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
+          {editing ? (
+            <p className="text-xs text-[#8090a8] bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
+              La contraseña se administra desde Firebase — usa el botón <RefreshCw size={11} className="inline" /> en la tabla para enviarle un correo de restablecimiento a este usuario.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1 relative">
+                <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider">Contraseña *</label>
+                <div className="relative">
+                  <input type={showPw ? "text" : "password"} value={form.password || ""} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-[#e8e8f0] text-sm focus:outline-none focus:border-[#0ea5c8] pr-10"
+                    placeholder="Mínimo 6 caracteres" />
+                  <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8090a8]">
+                    {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
               </div>
+              <Input label="Confirmar contraseña" type={showPw ? "text" : "password"} value={form.passwordConfirm || ""} onChange={e => setForm(f => ({ ...f, passwordConfirm: e.target.value }))} placeholder="Repetir contraseña" />
             </div>
-            <Input label="Confirmar contraseña" type={showPw ? "text" : "password"} value={form.passwordConfirm || ""} onChange={e => setForm(f => ({ ...f, passwordConfirm: e.target.value }))} placeholder="Repetir contraseña" />
-          </div>
+          )}
 
           <div>
             <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-2">Rol del Usuario</label>
@@ -2295,7 +2167,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
 
           <div className="flex justify-end gap-2 pt-2 border-t border-[#1a2235]">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
-            <Btn onClick={save}>{editing ? "Actualizar" : "Crear Usuario"}</Btn>
+            <Btn onClick={save}>{loading ? "Guardando..." : editing ? "Actualizar" : "Crear Usuario"}</Btn>
           </div>
         </div>
       </Modal>
@@ -2343,14 +2215,16 @@ function usePWA() {
 
 export default function App() {
   usePWA();
-  const [phase, setPhase] = useState<"splash" | "login" | "changepw" | "app">("splash");
+  const [phase, setPhase] = useState<"splash" | "login" | "app">("splash");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [profileIssue, setProfileIssue] = useState<{ type: "missing" | "disabled"; uid: string; email: string } | null>(null);
   const [activeTab, setActiveTab] = useState("cotizador");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { msg: toastMsg, show: showToast } = useToast();
 
   // Data state
-  const [users, setUsers] = useState<User[]>(() => ls<User[]>("zUsers", []));
+  const [users, setUsers] = useState<User[]>([]);
   const [catalog, setCatalog] = useState<Producto[]>(() => ls("zentocat", null) ?? DEFAULT_CATALOG);
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>(() => ls("zCotizaciones", []));
   const [ventas, setVentas] = useState<Venta[]>(() => ls("zVentas", []));
@@ -2362,10 +2236,6 @@ export default function App() {
   const [fbUrl, setFbUrlState] = useState(() => getFbUrl());
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "offline" | "error">("idle");
   const [cloudLoaded, setCloudLoaded] = useState(false);
-  // Mientras esto sea true, la pantalla de login espera — así ningún dispositivo
-  // intenta iniciar sesión contra una lista de usuarios local desactualizada
-  // mientras Firebase todavía está trayendo la lista real desde la nube.
-  const [cloudLoading, setCloudLoading] = useState(true);
 
   function addNotif(n: Omit<Notif, "id" | "fecha" | "leida">) {
     const notif: Notif = { ...n, id: uid(), fecha: new Date().toISOString(), leida: false };
@@ -2379,31 +2249,51 @@ export default function App() {
   // Escucha el estado de sincronización con la nube
   useEffect(() => onSyncStatusChange(setSyncStatus), []);
 
-  // Al iniciar, trae todos los datos de la nube (si hay Firebase configurado)
-  // ANTES de dejar entrar al login. Firebase es la fuente de verdad para
-  // "zUsers": solo se crea el administrador de fábrica si de verdad no existe
-  // ni en la nube ni en este navegador (primer arranque absoluto).
+  // Escucha la sesión REAL de Firebase Authentication (email/contraseña).
+  // Ya no existe inicio de sesión anónimo ni una lista local de usuarios con
+  // contraseñas: el perfil (nombre, rol, permisos, activo) vive en
+  // /users/{uid} en Firebase, indexado por el UID real de la cuenta.
   useEffect(() => {
-    if (cloudLoaded) return;
+    const unsub = onAuthChange(async (fbUser) => {
+      if (!fbUser) {
+        setCurrentUser(null);
+        setProfileIssue(null);
+        setAuthChecking(false);
+        setPhase(p => (p === "app" ? "login" : p));
+        return;
+      }
+      const profile = await getUserProfile<Omit<User, "uid">>(fbUser.uid);
+      if (!profile) {
+        setProfileIssue({ type: "missing", uid: fbUser.uid, email: fbUser.email || "" });
+        setAuthChecking(false);
+        return;
+      }
+      if (!profile.activo) {
+        setProfileIssue({ type: "disabled", uid: fbUser.uid, email: fbUser.email || "" });
+        setAuthChecking(false);
+        await signOutFb().catch(() => {});
+        return;
+      }
+      const ultimoAcceso = new Date().toISOString();
+      const updated: User = { ...profile, uid: fbUser.uid, ultimoAcceso };
+      setCurrentUser(updated);
+      setProfileIssue(null);
+      setUserProfile(fbUser.uid, { ...profile, ultimoAcceso }); // no bloqueante
+      setAuthChecking(false);
+      setPhase("app");
+    });
+    return unsub;
+  }, []);
+
+  // Una vez hay sesión, trae los datos de negocio guardados en la nube
+  useEffect(() => {
+    if (!currentUser || cloudLoaded) return;
     let cancelled = false;
     (async () => {
-      setCloudLoading(true);
       try {
         if (fbUrl) {
           const cloud = await fetchAllCloud();
           if (cancelled) return;
-
-          const cloudUsers = cloud.zUsers as User[] | undefined;
-          if (cloudUsers && cloudUsers.length > 0) {
-            setUsers(cloudUsers); lsSet("zUsers", cloudUsers);
-          } else {
-            // La nube no tiene usuarios todavía: usa lo que haya local (o el admin
-            // de fábrica) y SÚBELO para que se vuelva la fuente compartida.
-            const localUsers = ls<User[]>("zUsers", []);
-            const seeded = localUsers.length > 0 ? localUsers : [ADMIN_DEFAULT];
-            setUsers(seeded); persist("zUsers", seeded);
-          }
-
           if (cloud.zentocat) { setCatalog(cloud.zentocat as Producto[]); lsSet("zentocat", cloud.zentocat); }
           if (cloud.zCotizaciones) { setCotizaciones(cloud.zCotizaciones as Cotizacion[]); lsSet("zCotizaciones", cloud.zCotizaciones); }
           if (cloud.zVentas) { setVentas(cloud.zVentas as Venta[]); lsSet("zVentas", cloud.zVentas); }
@@ -2413,25 +2303,17 @@ export default function App() {
           if (cloud.zMant) { setMantenimientos(cloud.zMant as Mant[]); lsSet("zMant", cloud.zMant); }
           if (cloud.zNotifs) { setNotifs(cloud.zNotifs as Notif[]); lsSet("zNotifs", cloud.zNotifs); }
           if (cloud.zHojas) lsSet("zHojas", cloud.zHojas);
-
           if (Object.keys(cloud).length > 0) showToast("☁️ Datos sincronizados desde la nube");
-        } else {
-          // Sin Firebase configurado en este entorno: usa (o crea) el usuario local.
-          const localUsers = ls<User[]>("zUsers", []);
-          if (localUsers.length === 0) { setUsers([ADMIN_DEFAULT]); lsSet("zUsers", [ADMIN_DEFAULT]); }
-          else setUsers(localUsers);
         }
       } catch (e) {
         console.error("Error cargando datos de la nube:", e);
-        // Si falla la nube, no dejes a nadie sin poder entrar: usa lo local.
-        const localUsers = ls<User[]>("zUsers", []);
-        setUsers(localUsers.length > 0 ? localUsers : [ADMIN_DEFAULT]);
       } finally {
-        if (!cancelled) { setCloudLoaded(true); setCloudLoading(false); }
+        if (!cancelled) setCloudLoaded(true);
       }
     })();
     return () => { cancelled = true; };
-  }, [fbUrl, cloudLoaded]);
+  }, [currentUser, fbUrl, cloudLoaded]);
+
   useEffect(() => {
     const alerts: Omit<Notif, "id" | "fecha" | "leida">[] = [];
     const bajos = inventario.filter(i => i.stock <= i.minimo);
@@ -2441,28 +2323,18 @@ export default function App() {
     if (alerts.length > 0) alerts.forEach(a => addNotif(a));
   }, []);
 
-  function handleLogin(u: User) {
-    const updated = { ...u, ultimoAcceso: new Date().toISOString() };
-    setCurrentUser(updated);
-    const updatedUsers = users.map(x => x.id === u.id ? updated : x);
-    setUsers(updatedUsers); persist("zUsers", updatedUsers);
-    addNotif({ tipo: "success", titulo: "Sesión iniciada", mensaje: `Bienvenido, ${u.nombre}`, modulo: "sistema" });
-    // Por seguridad, si todavía usa la contraseña de fábrica, se obliga a cambiarla antes de continuar
-    setPhase(u.password === "zento2024" ? "changepw" : "app");
+  async function handleLoginSubmit(email: string, password: string) {
+    await signInEmail(email, password);
+    addNotif({ tipo: "success", titulo: "Sesión iniciada", mensaje: `Bienvenido`, modulo: "sistema" });
   }
 
-  function handlePasswordChanged(newPassword: string) {
-    if (!currentUser) return;
-    const updated = { ...currentUser, password: newPassword };
-    setCurrentUser(updated);
-    const updatedUsers = users.map(x => x.id === updated.id ? updated : x);
-    setUsers(updatedUsers); persist("zUsers", updatedUsers);
-    addNotif({ tipo: "success", titulo: "Contraseña actualizada", mensaje: "La contraseña de fábrica fue reemplazada", modulo: "sistema" });
-    showToast("✅ Contraseña actualizada");
-    setPhase("app");
+  function handleLogout() {
+    signOutFb().catch(() => {});
+    setCurrentUser(null);
+    setUsers([]);
+    setCloudLoaded(false);
+    setPhase("login");
   }
-
-  function handleLogout() { setCurrentUser(null); setPhase("login"); }
 
   // Ensure user always has access to at least a first available tab
   useEffect(() => {
@@ -2508,21 +2380,42 @@ export default function App() {
       </AnimatePresence>
 
       {phase === "login" && (
-        cloudLoading ? (
+        authChecking ? (
           <div className="fixed inset-0 flex items-center justify-center bg-[#07090f] px-4">
             <div className="text-center">
               <div className="w-10 h-10 border-2 border-[#1a2235] border-t-[#0ea5c8] rounded-full animate-spin mx-auto mb-4" />
               <div className="text-white font-bold mb-1 text-sm">Conectando con Zento Data...</div>
-              <div className="text-[#8090a8] text-xs">Verificando datos de la nube</div>
+              <div className="text-[#8090a8] text-xs">Verificando tu sesión</div>
+            </div>
+          </div>
+        ) : profileIssue ? (
+          <div className="fixed inset-0 flex items-center justify-center bg-[#07090f] px-4">
+            <div className="w-full max-w-sm bg-[#0b0e1a] border border-[#1a2235] rounded-2xl p-6 text-center">
+              <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle size={26} className="text-amber-400" />
+              </div>
+              {profileIssue.type === "missing" ? (
+                <>
+                  <h2 className="text-white font-bold mb-2">Tu cuenta no tiene perfil configurado</h2>
+                  <p className="text-[#8090a8] text-xs mb-3 leading-relaxed">
+                    Tu inicio de sesión de Firebase fue exitoso, pero no existe un perfil en <code className="text-[#0ea5c8]">/users</code> para esta cuenta. Pide a un administrador que te agregue desde el Panel de Usuarios, o si eres la primera cuenta del sistema, créala manualmente en Firebase Realtime Database bajo:
+                  </p>
+                  <div className="bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-[10px] text-[#0ea5c8] font-mono break-all mb-3">
+                    /users/{profileIssue.uid}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-white font-bold mb-2">Cuenta desactivada</h2>
+                  <p className="text-[#8090a8] text-xs mb-3">Tu cuenta ({profileIssue.email}) está marcada como inactiva. Contacta a un administrador.</p>
+                </>
+              )}
+              <button onClick={() => { setProfileIssue(null); handleLogout(); }} className="text-xs text-[#0ea5c8] hover:text-white">Volver al login</button>
             </div>
           </div>
         ) : (
-          <LoginScreen users={users} onLogin={handleLogin} />
+          <LoginScreen onLogin={handleLoginSubmit} fbReady={!!fbUrl} />
         )
-      )}
-
-      {phase === "changepw" && currentUser && (
-        <ForceChangePasswordScreen userName={currentUser.nombre} onChanged={handlePasswordChanged} onLogout={handleLogout} />
       )}
 
       {phase === "app" && currentUser && (
