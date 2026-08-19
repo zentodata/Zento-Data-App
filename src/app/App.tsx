@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Bell, X, Menu, Plus, Trash2, Edit2, Copy, Search, LogOut, Users, Shield,
@@ -80,6 +80,8 @@ type HistorialRed = {
   costo?: number; precioCobrado?: number;
   fotos?: ArchivoRed[];
   documentos?: ArchivoRed[];
+  resultado?: string;
+  equiposRevisados?: string[];
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
@@ -89,6 +91,7 @@ type ServicioRed = {
   equipos: EquipoRed[];
   historial: HistorialRed[];
   fechaInstalacion: string; ultimaModificacion: string;
+  fechaUltimoMant?: string; fechaProximoMant?: string;
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
@@ -98,6 +101,7 @@ const fmt = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3}
 const ls = <T,>(k: string, def: T): T => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : def; } catch { return def; } };
 const lsSet = (k: string, v: unknown) => localStorage.setItem(k, JSON.stringify(v));
 const today = () => new Date().toISOString().split("T")[0];
+const diasHasta = (fecha: string) => Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000);
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -1988,6 +1992,11 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const pendientes = redes.filter(r => r.estado === "pendiente" || r.estado === "programado").length;
   const incidencias = redes.filter(r => r.estado === "incidencia").length;
   const enMantenimiento = redes.filter(r => r.estado === "mantenimiento").length;
+  const proximosMant = redes
+    .filter(r => r.fechaProximoMant)
+    .map(r => ({ r, dias: diasHasta(r.fechaProximoMant!) }))
+    .filter(x => x.dias <= 30)
+    .sort((a, b) => a.dias - b.dias);
 
   function nextCodigoCliente(nombre: string): string {
     const existente = redes.find(r => r.clienteNombre.toLowerCase() === nombre.toLowerCase());
@@ -2042,19 +2051,24 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const emptyModForm = {
     tipo: "modificacion" as HistorialRed["tipo"],
     equipoAfectado: "", equipoNuevo: "",
-    descripcion: "", motivo: "", observaciones: "",
+    descripcion: "", motivo: "", observaciones: "", resultado: "",
     tecnico: currentUser.nombre, fecha: today(),
     costo: 0, precioCobrado: 0,
     nuevoEstado: "" as EstadoRed | "",
+    proximoMant: "", equiposRevisados: [] as string[],
   };
   const [modForm, setModForm] = useState(emptyModForm);
   const [modFotos, setModFotos] = useState<ArchivoRed[]>([]);
   const [modDocs, setModDocs] = useState<ArchivoRed[]>([]);
 
-  function abrirModificacion() {
-    setModForm({ ...emptyModForm, tecnico: currentUser.nombre });
+  function abrirModificacion(tipoInicial: HistorialRed["tipo"] = "modificacion") {
+    setModForm({ ...emptyModForm, tecnico: currentUser.nombre, tipo: tipoInicial });
     setModFotos([]); setModDocs([]);
     setModModal(true);
+  }
+
+  function toggleEquipoRevisado(modelo: string) {
+    setModForm(f => ({ ...f, equiposRevisados: f.equiposRevisados.includes(modelo) ? f.equiposRevisados.filter(x => x !== modelo) : [...f.equiposRevisados, modelo] }));
   }
 
   function fileToBase64(file: File): Promise<string> {
@@ -2100,6 +2114,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   function guardarModificacion() {
     if (!detalle) return;
     if (!modForm.descripcion) { showToast("⚠️ La descripción es requerida"); return; }
+    const esMantenimiento = modForm.tipo === "mantenimiento";
     const equipoTexto = modForm.equipoNuevo.trim() || modForm.equipoAfectado || "";
     const nuevoHist: HistorialRed = {
       id: uid(), fecha: modForm.fecha, tipo: modForm.tipo, tecnico: modForm.tecnico || currentUser.nombre,
@@ -2110,6 +2125,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       precioCobrado: modForm.precioCobrado || undefined,
       fotos: modFotos.length ? modFotos : undefined,
       documentos: modDocs.length ? modDocs : undefined,
+      resultado: esMantenimiento && modForm.resultado ? modForm.resultado : undefined,
+      equiposRevisados: esMantenimiento && modForm.equiposRevisados.length ? modForm.equiposRevisados : undefined,
     };
 
     let equiposActualizados = detalle.equipos;
@@ -2123,6 +2140,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       historial: [...detalle.historial, nuevoHist],
       estado: modForm.nuevoEstado || detalle.estado,
       ultimaModificacion: new Date().toISOString(),
+      ...(esMantenimiento ? {
+        fechaUltimoMant: modForm.fecha,
+        fechaProximoMant: modForm.proximoMant || detalle.fechaProximoMant,
+      } : {}),
     };
 
     const next = redes.map(r => r.id === detalle.id ? actualizado : r);
@@ -2145,12 +2166,34 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
         <StatCard label="Activos" value={activos} color="#10b981" />
         <StatCard label="Pendientes" value={pendientes} color="#eab308" />
         <StatCard label="En Mantenimiento" value={enMantenimiento} color="#f59e0b" />
         <StatCard label="Incidencias" value={incidencias} color="#ef4444" />
+        <StatCard label="Mant. Próximos (30d)" value={proximosMant.length} color="#0ea5c8" />
       </div>
+
+      {proximosMant.length > 0 && (
+        <Card className="mb-4">
+          <CardTitle>🔧 Próximos Mantenimientos</CardTitle>
+          <div className="space-y-1.5">
+            {proximosMant.slice(0, 6).map(({ r, dias }) => (
+              <button key={r.id} onClick={() => setDetalle(r)}
+                className="w-full flex items-center justify-between text-left px-3 py-2 bg-[#060810] border border-[#1a2235] rounded-lg hover:border-[#0ea5c8]/40">
+                <div>
+                  <span className="text-xs text-[#0ea5c8] font-mono mr-2">{r.codigoCliente}</span>
+                  <span className="text-sm text-white font-medium">{r.clienteNombre}</span>
+                  <span className="text-xs text-[#8090a8]"> — {r.tipoServicio}</span>
+                </div>
+                <span className={`text-xs font-semibold ${dias < 0 ? "text-red-400" : dias <= 7 ? "text-amber-400" : "text-[#8090a8]"}`}>
+                  {dias < 0 ? `Vencido hace ${Math.abs(dias)}d` : dias === 0 ? "Hoy" : `En ${dias}d`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
@@ -2301,6 +2344,15 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
               <div><span className="text-[#8090a8]">Plan:</span> <span className="text-white">{detalle.plan || "-"}</span></div>
               <div><span className="text-[#8090a8]">Instalación:</span> <span className="text-white">{detalle.fechaInstalacion}</span></div>
               <div><span className="text-[#8090a8]">Código:</span> <span className="text-[#0ea5c8] font-mono">{detalle.codigoCliente}</span></div>
+              <div><span className="text-[#8090a8]">Último mant.:</span> <span className="text-white">{detalle.fechaUltimoMant || "-"}</span></div>
+              <div>
+                <span className="text-[#8090a8]">Próximo mant.:</span>{" "}
+                {detalle.fechaProximoMant ? (
+                  <span className={diasHasta(detalle.fechaProximoMant) < 0 ? "text-red-400 font-semibold" : diasHasta(detalle.fechaProximoMant) <= 7 ? "text-amber-400 font-semibold" : "text-white"}>
+                    {detalle.fechaProximoMant} {diasHasta(detalle.fechaProximoMant) < 0 ? "(vencido)" : `(${diasHasta(detalle.fechaProximoMant)}d)`}
+                  </span>
+                ) : <span className="text-[#5a6a80]">-</span>}
+              </div>
             </div>
 
             {detalle.equipos.length > 0 && (
@@ -2318,9 +2370,12 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
               </div>
             )}
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="text-xs font-bold text-[#8090a8] uppercase">Historial</div>
-              <Btn size="sm" onClick={abrirModificacion}><Plus size={12} /> Nueva modificación</Btn>
+              <div className="flex gap-2">
+                <Btn size="sm" variant="ghost" onClick={() => abrirModificacion("mantenimiento")}>🔧 Registrar mantenimiento</Btn>
+                <Btn size="sm" onClick={() => abrirModificacion()}><Plus size={12} /> Nueva modificación</Btn>
+              </div>
             </div>
             <div className="space-y-2 -mt-2">
               {detalle.historial.slice().reverse().map(h => (
@@ -2332,6 +2387,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                   <p className="text-[#c8d8e8] whitespace-pre-wrap">{h.descripcion}</p>
                   {h.motivo && <p className="text-[#8090a8] mt-1">Motivo: {h.motivo}</p>}
                   {h.equipoAfectado && <p className="text-[#8090a8]">Equipo: {h.equipoAfectado}</p>}
+                  {h.resultado && <p className="text-[#8090a8]">Resultado: {h.resultado}</p>}
+                  {h.equiposRevisados && h.equiposRevisados.length > 0 && <p className="text-[#8090a8]">Revisados: {h.equiposRevisados.join(", ")}</p>}
                   {(h.costo || h.precioCobrado) && (
                     <p className="text-[#8090a8]">
                       {h.costo ? `Costo: ${fmt(h.costo)}` : ""}{h.costo && h.precioCobrado ? " · " : ""}{h.precioCobrado ? `Cobrado: ${fmt(h.precioCobrado)}` : ""}
@@ -2410,6 +2467,46 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <Input label="Precio cobrado (Q)" type="number" min="0" step="0.01" value={modForm.precioCobrado || ""} onChange={e => setModForm(f => ({ ...f, precioCobrado: +e.target.value }))} />
           </div>
           <p className="text-[10px] text-[#5a6a80] -mt-2">Solo informativo dentro de Redes — no afecta las estadísticas de Ventas.</p>
+
+          {modForm.tipo === "mantenimiento" && (
+            <div className="bg-[#091520] border border-[#1a4fa8]/40 rounded-xl p-3.5 space-y-3">
+              <div className="text-xs font-bold text-[#0ea5c8] uppercase">🔧 Datos del mantenimiento</div>
+              <div>
+                <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Resultado</label>
+                <textarea value={modForm.resultado} onChange={e => setModForm(f => ({ ...f, resultado: e.target.value }))} rows={2}
+                  placeholder="Ej. Red funcionando correctamente, se optimizó ubicación de nodos..."
+                  className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+              </div>
+              {(detalle?.equipos.length || 0) > 0 && (
+                <div>
+                  <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1.5">Equipos revisados</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {detalle!.equipos.map(e => (
+                      <button key={e.id} type="button" onClick={() => toggleEquipoRevisado(e.modelo)}
+                        className={`px-2.5 py-1 rounded-lg text-xs border transition-all
+                          ${modForm.equiposRevisados.includes(e.modelo) ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8]"}`}>
+                        {e.modelo}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Próximo mantenimiento</label>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <input type="date" value={modForm.proximoMant} onChange={e => setModForm(f => ({ ...f, proximoMant: e.target.value }))}
+                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+                  {[30, 90, 180].map(dias => (
+                    <button key={dias} type="button"
+                      onClick={() => { const d = new Date(modForm.fecha || today()); d.setDate(d.getDate() + dias); setModForm(f => ({ ...f, proximoMant: d.toISOString().split("T")[0] })); }}
+                      className="px-2.5 py-1.5 rounded-lg text-xs bg-[#060810] border border-[#1a2235] text-[#8090a8] hover:text-[#0ea5c8] hover:border-[#0ea5c8]">
+                      +{dias}d
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <Select label="Actualizar estado del servicio a..." value={modForm.nuevoEstado} onChange={e => setModForm(f => ({ ...f, nuevoEstado: e.target.value as EstadoRed | "" }))}>
             <option value="">— Mantener estado actual ({detalle ? ESTADO_RED_LABELS[detalle.estado] : ""}) —</option>
@@ -2884,14 +2981,37 @@ export default function App() {
     return () => { cancelled = true; };
   }, [currentUser, fbUrl, cloudLoaded]);
 
+  const alertedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const alerts: Omit<Notif, "id" | "fecha" | "leida">[] = [];
+    if (!cloudLoaded) return; // espera a que los datos reales (nube o local) estén cargados
     const bajos = inventario.filter(i => i.stock <= i.minimo);
-    if (bajos.length > 0) alerts.push({ tipo: "warning", titulo: `${bajos.length} item(s) con stock bajo`, mensaje: bajos.slice(0, 3).map(i => i.nombre).join(", "), modulo: "inventario" });
-    const mantProx = mantenimientos.filter(m => !m.completado && Math.ceil((new Date(m.fechaProxima).getTime() - Date.now()) / 86400000) <= 7);
-    if (mantProx.length > 0) alerts.push({ tipo: "warning", titulo: `${mantProx.length} mantenimiento(s) esta semana`, mensaje: mantProx.slice(0, 3).map(m => m.equipo).join(", "), modulo: "mantenimiento" });
-    if (alerts.length > 0) alerts.forEach(a => addNotif(a));
-  }, []);
+    const keyBajos = "inv-" + bajos.map(i => i.id).sort().join(",");
+    if (bajos.length > 0 && !alertedRef.current.has(keyBajos)) {
+      alertedRef.current.add(keyBajos);
+      addNotif({ tipo: "warning", titulo: `${bajos.length} item(s) con stock bajo`, mensaje: bajos.slice(0, 3).map(i => i.nombre).join(", "), modulo: "inventario" });
+    }
+
+    const mantProx = mantenimientos.filter(m => !m.completado && diasHasta(m.fechaProxima) <= 7);
+    const keyMant = "mant-" + mantProx.map(m => m.id).sort().join(",");
+    if (mantProx.length > 0 && !alertedRef.current.has(keyMant)) {
+      alertedRef.current.add(keyMant);
+      addNotif({ tipo: "warning", titulo: `${mantProx.length} mantenimiento(s) esta semana`, mensaje: mantProx.slice(0, 3).map(m => m.equipo).join(", "), modulo: "mantenimiento" });
+    }
+
+    const redesProx = redes.filter(r => r.fechaProximoMant && diasHasta(r.fechaProximoMant) <= 7);
+    redesProx.forEach(r => {
+      const key = `red-mant-${r.id}-${r.fechaProximoMant}`;
+      if (!alertedRef.current.has(key)) {
+        alertedRef.current.add(key);
+        const dias = diasHasta(r.fechaProximoMant!);
+        addNotif({
+          tipo: "warning", modulo: "redes",
+          titulo: `Mantenimiento de red ${dias < 0 ? "vencido" : "próximo"} — ${r.codigoCliente}`,
+          mensaje: `${r.clienteNombre} (${r.tipoServicio}) — ${dias < 0 ? `vencido hace ${Math.abs(dias)} día(s)` : dias === 0 ? "hoy" : `en ${dias} día(s)`}`,
+        });
+      }
+    });
+  }, [inventario, mantenimientos, redes, cloudLoaded]);
 
   async function handleLoginSubmit(email: string, password: string) {
     await signInEmail(email, password);
