@@ -53,6 +53,7 @@ type Cotizacion = {
 };
 type Venta = {
   id: string; fecha: string; cliente: string; total: number; inversion: number; conFactura: boolean;
+  facturaPdf?: string; facturaNombre?: string;
 };
 type ItemInv = { id: string; nombre: string; stock: number; minimo: number; precio: number };
 type Gasto = { id: string; fecha: string; categoria: string; monto: number; descripcion: string };
@@ -62,8 +63,7 @@ type Mant = {
   proveedor: string; notas: string; frecuenciaDias: number; completado: boolean;
 };
 
-// ── Redes (Parte 1: solo tipos + dashboard/tabla — los formularios de alta
-// llegan en la siguiente parte) ──
+// ── Redes ──
 type EquipoRed = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
   ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
@@ -86,6 +86,7 @@ type HistorialRed = {
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
   id: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
+  clienteEmail?: string; clienteDireccion?: string; clienteObservaciones?: string;
   tipoServicio: string; proveedor: string; plan: string;
   estado: EstadoRed;
   equipos: EquipoRed[];
@@ -1959,6 +1960,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const [tipoOtro, setTipoOtro] = useState(false);
   const [modModal, setModModal] = useState(false);
   const [modUploading, setModUploading] = useState(false);
+  const [vista, setVista] = useState<"servicios" | "clientes">("servicios");
+  const [expedienteCodigo, setExpedienteCodigo] = useState<string | null>(null);
+  const [editandoCliente, setEditandoCliente] = useState(false);
+  const [clienteForm, setClienteForm] = useState({ telefono: "", email: "", direccion: "", observaciones: "" });
 
   const emptyForm = {
     clienteNombre: "", clienteTelefono: "", tipoServicio: "WiFi Mesh", proveedor: "", plan: "",
@@ -1997,6 +2002,60 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     .map(r => ({ r, dias: diasHasta(r.fechaProximoMant!) }))
     .filter(x => x.dias <= 30)
     .sort((a, b) => a.dias - b.dias);
+
+  // ── Expediente por cliente (punto 17): agrupa todos los servicios de un
+  // mismo código ZD-XXXX, y conecta con sus cotizaciones/ventas existentes ──
+  type ExpedienteCliente = {
+    codigo: string; nombre: string; telefono: string; email?: string; direccion?: string; observaciones?: string;
+    servicios: ServicioRed[];
+  };
+  const expedientes: ExpedienteCliente[] = Array.from(
+    redes.reduce((map, r) => {
+      const key = r.codigoCliente;
+      const arr = map.get(key) || [];
+      arr.push(r);
+      map.set(key, arr);
+      return map;
+    }, new Map<string, ServicioRed[]>())
+  ).map(([codigo, servicios]) => {
+    const ultimo = servicios.slice().sort((a, b) => b.ultimaModificacion.localeCompare(a.ultimaModificacion))[0];
+    return {
+      codigo, nombre: ultimo.clienteNombre, telefono: ultimo.clienteTelefono,
+      email: ultimo.clienteEmail, direccion: ultimo.clienteDireccion, observaciones: ultimo.clienteObservaciones,
+      servicios,
+    };
+  });
+  const expedientesFiltrados = expedientes.filter(e =>
+    !search || (e.nombre + e.codigo + e.servicios.map(s => s.tipoServicio).join(" ")).toLowerCase().includes(search.toLowerCase())
+  );
+  const expediente = expedienteCodigo ? expedientes.find(e => e.codigo === expedienteCodigo) || null : null;
+  const cotizacionesCliente = expediente ? cotizaciones.filter(c => c.cliente.toLowerCase() === expediente.nombre.toLowerCase()) : [];
+  const ventasCliente = expediente ? ventas.filter(v => v.cliente.toLowerCase() === expediente.nombre.toLowerCase()) : [];
+  const equiposCliente = expediente ? expediente.servicios.flatMap(s => s.equipos.map(e => ({ ...e, servicio: s.tipoServicio }))) : [];
+  const historialCliente = expediente
+    ? expediente.servicios.flatMap(s => s.historial.map(h => ({ ...h, servicio: s.tipoServicio, codigoServicio: s.id }))).sort((a, b) => b.fecha.localeCompare(a.fecha))
+    : [];
+  const documentosCliente = expediente
+    ? historialCliente.flatMap(h => [...(h.fotos || []).map(f => ({ ...f, tipo: "foto" as const })), ...(h.documentos || []).map(d => ({ ...d, tipo: "doc" as const }))])
+    : [];
+
+  function abrirExpediente(codigo: string) {
+    const e = expedientes.find(x => x.codigo === codigo);
+    if (!e) return;
+    setExpedienteCodigo(codigo);
+    setClienteForm({ telefono: e.telefono || "", email: e.email || "", direccion: e.direccion || "", observaciones: e.observaciones || "" });
+    setEditandoCliente(false);
+  }
+
+  function guardarDatosCliente() {
+    if (!expediente) return;
+    const next = redes.map(r => r.codigoCliente === expediente.codigo
+      ? { ...r, clienteTelefono: clienteForm.telefono, clienteEmail: clienteForm.email, clienteDireccion: clienteForm.direccion, clienteObservaciones: clienteForm.observaciones }
+      : r);
+    setRedes(next); persist("zRedes", next);
+    setEditandoCliente(false);
+    showToast("✅ Datos del cliente actualizados");
+  }
 
   function nextCodigoCliente(nombre: string): string {
     const existente = redes.find(r => r.clienteNombre.toLowerCase() === nombre.toLowerCase());
@@ -2161,7 +2220,11 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
           <h2 className="text-xl font-black text-white">🌐 Servicios de Red</h2>
           <p className="text-sm text-[#8090a8] mt-0.5">Instalaciones, equipos e infraestructura de red de tus clientes</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="flex bg-[#0b0e1a] border border-[#1a2235] rounded-lg p-0.5">
+            <button onClick={() => setVista("servicios")} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${vista === "servicios" ? "bg-[#0ea5c8]/10 text-[#0ea5c8]" : "text-[#8090a8]"}`}>Servicios</button>
+            <button onClick={() => setVista("clientes")} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${vista === "clientes" ? "bg-[#0ea5c8]/10 text-[#0ea5c8]" : "text-[#8090a8]"}`}>Clientes</button>
+          </div>
           <Btn onClick={abrirNuevo}><Plus size={14} /> Nueva instalación</Btn>
         </div>
       </div>
@@ -2203,46 +2266,79 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap mb-3">
-        {(["todos", "activo", "pendiente", "mantenimiento", "incidencia"] as const).map(f => (
-          <button key={f} onClick={() => setFiltro(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-              ${filtro === f ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
-            {f === "todos" ? "Todos" : ESTADO_RED_LABELS[f]}
-          </button>
-        ))}
-      </div>
+      {vista === "servicios" && (
+        <div className="flex gap-2 flex-wrap mb-3">
+          {(["todos", "activo", "pendiente", "mantenimiento", "incidencia"] as const).map(f => (
+            <button key={f} onClick={() => setFiltro(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+                ${filtro === f ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+              {f === "todos" ? "Todos" : ESTADO_RED_LABELS[f]}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <Card>
-        {filtered.length === 0 ? (
-          <EmptyState icon="🌐"
-            msg={redes.length === 0
-              ? "Sin servicios de red registrados todavía. Usa \"+ Nueva instalación\" para agregar el primero."
-              : "Ningún servicio coincide con la búsqueda o el filtro."} />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px]">
-              <thead><tr className="border-b border-[#1a2235]">
-                {["Código","Cliente","Servicio","Equipo","Estado","Última modificación"].map(h => (
-                  <th key={h} className="text-left py-2.5 px-3 text-[10px] font-bold text-[#8090a8] uppercase tracking-wider">{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {filtered.map(r => (
-                  <tr key={r.id} onClick={() => setDetalle(r)} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] cursor-pointer">
-                    <td className="py-2.5 px-3 text-xs text-[#0ea5c8] font-mono">{r.codigoCliente}</td>
-                    <td className="py-2.5 px-3 text-sm font-medium text-white">{r.clienteNombre}</td>
-                    <td className="py-2.5 px-3 text-xs text-[#c8d8e8]">{r.tipoServicio}</td>
-                    <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.equipos.map(e => e.modelo).join(", ") || "—"}</td>
-                    <td className="py-2.5 px-3"><Badge className={ESTADO_RED_COLORS[r.estado]}>{ESTADO_RED_LABELS[r.estado]}</Badge></td>
-                    <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.ultimaModificacion ? new Date(r.ultimaModificacion).toLocaleDateString("es-GT") : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      {vista === "servicios" ? (
+        <Card>
+          {filtered.length === 0 ? (
+            <EmptyState icon="🌐"
+              msg={redes.length === 0
+                ? "Sin servicios de red registrados todavía. Usa \"+ Nueva instalación\" para agregar el primero."
+                : "Ningún servicio coincide con la búsqueda o el filtro."} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px]">
+                <thead><tr className="border-b border-[#1a2235]">
+                  {["Código","Cliente","Servicio","Equipo","Estado","Última modificación"].map(h => (
+                    <th key={h} className="text-left py-2.5 px-3 text-[10px] font-bold text-[#8090a8] uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {filtered.map(r => (
+                    <tr key={r.id} onClick={() => setDetalle(r)} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] cursor-pointer">
+                      <td className="py-2.5 px-3 text-xs text-[#0ea5c8] font-mono">{r.codigoCliente}</td>
+                      <td className="py-2.5 px-3 text-sm font-medium text-white">{r.clienteNombre}</td>
+                      <td className="py-2.5 px-3 text-xs text-[#c8d8e8]">{r.tipoServicio}</td>
+                      <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.equipos.map(e => e.modelo).join(", ") || "—"}</td>
+                      <td className="py-2.5 px-3"><Badge className={ESTADO_RED_COLORS[r.estado]}>{ESTADO_RED_LABELS[r.estado]}</Badge></td>
+                      <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.ultimaModificacion ? new Date(r.ultimaModificacion).toLocaleDateString("es-GT") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <Card>
+          {expedientesFiltrados.length === 0 ? (
+            <EmptyState icon="🗂️" msg={expedientes.length === 0 ? "Sin clientes registrados en Redes todavía." : "Ningún cliente coincide con la búsqueda."} />
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {expedientesFiltrados.map(e => {
+                const totalEquipos = e.servicios.reduce((a, s) => a + s.equipos.length, 0);
+                return (
+                  <button key={e.codigo} onClick={() => abrirExpediente(e.codigo)}
+                    className="text-left p-3.5 bg-[#060810] border border-[#1a2235] rounded-xl hover:border-[#0ea5c8]/40 transition-colors">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-[#0ea5c8] font-mono">{e.codigo}</span>
+                      <span className="text-[10px] text-[#5a6a80]">{e.servicios.length} servicio(s)</span>
+                    </div>
+                    <div className="text-sm font-bold text-white">{e.nombre}</div>
+                    {e.telefono && <div className="text-xs text-[#8090a8] mb-2">{e.telefono}</div>}
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {e.servicios.slice(0, 4).map(s => (
+                        <Badge key={s.id} className={ESTADO_RED_COLORS[s.estado]}>{s.tipoServicio}</Badge>
+                      ))}
+                    </div>
+                    <div className="text-[10px] text-[#5a6a80] mt-2">{totalEquipos} equipo(s) instalado(s)</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* ── Modal: Nueva instalación ── */}
       <Modal open={modal} onClose={() => setModal(false)} title="Nueva Instalación de Red" width="max-w-xl">
@@ -2550,6 +2646,122 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <Btn onClick={guardarModificacion}>💾 Guardar</Btn>
           </div>
         </div>
+      </Modal>
+
+      {/* ── Modal: Expediente del cliente (punto 17) ── */}
+      <Modal open={!!expediente} onClose={() => setExpedienteCodigo(null)} title={expediente ? `Expediente — ${expediente.codigo}` : ""} width="max-w-2xl">
+        {expediente && (
+          <div className="space-y-4 text-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-white font-bold text-lg">{expediente.nombre}</div>
+                <div className="text-xs text-[#8090a8]">{expediente.servicios.length} servicio(s) · {equiposCliente.length} equipo(s)</div>
+              </div>
+              <Btn size="sm" variant="ghost" onClick={() => setEditandoCliente(v => !v)}><Edit2 size={12} /> {editandoCliente ? "Cancelar" : "Editar datos"}</Btn>
+            </div>
+
+            {editandoCliente ? (
+              <div className="space-y-3 bg-[#060810] border border-[#1a2235] rounded-lg p-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Input label="Teléfono" value={clienteForm.telefono} onChange={e => setClienteForm(f => ({ ...f, telefono: e.target.value }))} />
+                  <Input label="Email" type="email" value={clienteForm.email} onChange={e => setClienteForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+                <Input label="Dirección" value={clienteForm.direccion} onChange={e => setClienteForm(f => ({ ...f, direccion: e.target.value }))} />
+                <div>
+                  <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Observaciones</label>
+                  <textarea value={clienteForm.observaciones} onChange={e => setClienteForm(f => ({ ...f, observaciones: e.target.value }))} rows={2}
+                    className="w-full bg-[#0b0e1a] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+                </div>
+                <div className="flex justify-end"><Btn size="sm" onClick={guardarDatosCliente}>💾 Guardar datos</Btn></div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 text-xs bg-[#060810] border border-[#1a2235] rounded-lg p-3">
+                <div><span className="text-[#8090a8]">Teléfono:</span> <span className="text-white">{expediente.telefono || "-"}</span></div>
+                <div><span className="text-[#8090a8]">Email:</span> <span className="text-white">{expediente.email || "-"}</span></div>
+                <div className="col-span-2"><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{expediente.direccion || "-"}</span></div>
+                {expediente.observaciones && <div className="col-span-2"><span className="text-[#8090a8]">Observaciones:</span> <span className="text-white">{expediente.observaciones}</span></div>}
+              </div>
+            )}
+
+            <div>
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Servicios ({expediente.servicios.length})</div>
+              <div className="space-y-1.5">
+                {expediente.servicios.map(s => (
+                  <button key={s.id} onClick={() => { setExpedienteCodigo(null); setDetalle(s); }}
+                    className="w-full flex items-center justify-between text-left px-3 py-2 bg-[#060810] border border-[#1a2235] rounded-lg hover:border-[#0ea5c8]/40">
+                    <span className="text-sm text-white">{s.tipoServicio}</span>
+                    <Badge className={ESTADO_RED_COLORS[s.estado]}>{ESTADO_RED_LABELS[s.estado]}</Badge>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {equiposCliente.length > 0 && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Equipos instalados ({equiposCliente.length})</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {equiposCliente.map((e, i) => (
+                    <span key={e.id + i} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-1 text-[#c8d8e8]">
+                      {e.modelo} <span className="text-[#5a6a80]">· {e.servicio}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(cotizacionesCliente.length > 0 || ventasCliente.length > 0) && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Cotizaciones y Ventas</div>
+                <div className="space-y-1.5">
+                  {cotizacionesCliente.map(c => (
+                    <div key={c.id} className="flex items-center justify-between text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-1.5">
+                      <span className="text-[#c8d8e8]">{c.id} · {fmt(c.total)}</span>
+                      <button onClick={() => descargarPdfCotizacion(c)} className="text-[#0ea5c8] hover:text-white"><Download size={12} /></button>
+                    </div>
+                  ))}
+                  {ventasCliente.map(v => (
+                    <div key={v.id} className="flex items-center justify-between text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-1.5">
+                      <span className="text-[#c8d8e8]">Venta {v.fecha} · {fmt(v.total)}</span>
+                      {v.facturaPdf && <a href={v.facturaPdf} download={v.facturaNombre || "factura.pdf"} className="text-[#0ea5c8] hover:text-white"><Download size={12} /></a>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {documentosCliente.length > 0 && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Fotos y documentos ({documentosCliente.length})</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {documentosCliente.map(d => d.tipo === "foto" ? (
+                    <a key={d.id} href={d.data} target="_blank" rel="noopener noreferrer" title={d.nombre}>
+                      <img src={d.data} alt={d.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
+                    </a>
+                  ) : (
+                    <a key={d.id} href={d.data} download={d.nombre} className="flex items-center gap-1 text-xs text-[#0ea5c8] bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 hover:underline">
+                      <FileText size={11} /> {d.nombre}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Historial combinado</div>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {historialCliente.slice(0, 15).map(h => (
+                  <div key={h.id} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20">{HIST_TIPO_LABELS[h.tipo]} · {h.servicio}</Badge>
+                      <span className="text-[#5a6a80]">{new Date(h.fecha).toLocaleDateString("es-GT")}</span>
+                    </div>
+                    <p className="text-[#c8d8e8] whitespace-pre-wrap">{h.descripcion}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
