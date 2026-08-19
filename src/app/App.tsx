@@ -66,13 +66,20 @@ type Mant = {
 // llegan en la siguiente parte) ──
 type EquipoRed = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
-  ip?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
+  ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
   garantia?: string;
 };
+type ArchivoRed = { id: string; nombre: string; data: string };
 type HistorialRed = {
   id: string; fecha: string;
   tipo: "instalacion" | "modificacion" | "reemplazo" | "mantenimiento" | "incidencia" | "baja";
   tecnico: string; descripcion: string;
+  motivo?: string;
+  equipoAfectado?: string;
+  antes?: string; despues?: string;
+  costo?: number; precioCobrado?: number;
+  fotos?: ArchivoRed[];
+  documentos?: ArchivoRed[];
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
@@ -155,6 +162,10 @@ const TIPOS_SERVICIO_RED = [
   "Enlace inalámbrico", "VPN", "Red empresarial", "Administración remota",
   "Mantenimiento de red", "Cámaras IP", "NVR", "Otros servicios de infraestructura",
 ];
+const HIST_TIPO_LABELS: Record<HistorialRed["tipo"], string> = {
+  instalacion: "Instalación", modificacion: "Modificación", reemplazo: "Reemplazo",
+  mantenimiento: "Mantenimiento", incidencia: "Incidencia", baja: "Baja",
+};
 
 const SERVICES = [
   { id: "inst_cam", ico: "📹", lbl: "Instalación Cámaras" },
@@ -1942,6 +1953,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const [modal, setModal] = useState(false);
   const [detalle, setDetalle] = useState<ServicioRed | null>(null);
   const [tipoOtro, setTipoOtro] = useState(false);
+  const [modModal, setModModal] = useState(false);
+  const [modUploading, setModUploading] = useState(false);
 
   const emptyForm = {
     clienteNombre: "", clienteTelefono: "", tipoServicio: "WiFi Mesh", proveedor: "", plan: "",
@@ -2023,6 +2036,101 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     setRedes(next); persist("zRedes", next); setModal(false);
     addNotif({ tipo: "success", titulo: "Nueva instalación de red", mensaje: `${codigo} — ${nuevo.clienteNombre} (${nuevo.tipoServicio})`, modulo: "redes" });
     showToast("✅ Instalación registrada");
+  }
+
+  // ── Registro de modificaciones (punto 8) ──
+  const emptyModForm = {
+    tipo: "modificacion" as HistorialRed["tipo"],
+    equipoAfectado: "", equipoNuevo: "",
+    descripcion: "", motivo: "", observaciones: "",
+    tecnico: currentUser.nombre, fecha: today(),
+    costo: 0, precioCobrado: 0,
+    nuevoEstado: "" as EstadoRed | "",
+  };
+  const [modForm, setModForm] = useState(emptyModForm);
+  const [modFotos, setModFotos] = useState<ArchivoRed[]>([]);
+  const [modDocs, setModDocs] = useState<ArchivoRed[]>([]);
+
+  function abrirModificacion() {
+    setModForm({ ...emptyModForm, tecnico: currentUser.nombre });
+    setModFotos([]); setModDocs([]);
+    setModModal(true);
+  }
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleFotos(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    if (modFotos.length + files.length > 5) { showToast("⚠️ Máximo 5 fotos por modificación"); return; }
+    setModUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) { showToast(`⚠️ "${file.name}" no es una imagen`); continue; }
+        if (file.size > 2 * 1024 * 1024) { showToast(`⚠️ "${file.name}" pesa más de 2 MB`); continue; }
+        const data = await fileToBase64(file);
+        setModFotos(prev => [...prev, { id: uid(), nombre: file.name, data }]);
+      }
+    } finally {
+      setModUploading(false);
+    }
+  }
+
+  async function handleDocs(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    if (modDocs.length + files.length > 3) { showToast("⚠️ Máximo 3 documentos por modificación"); return; }
+    setModUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > 3 * 1024 * 1024) { showToast(`⚠️ "${file.name}" pesa más de 3 MB`); continue; }
+        const data = await fileToBase64(file);
+        setModDocs(prev => [...prev, { id: uid(), nombre: file.name, data }]);
+      }
+    } finally {
+      setModUploading(false);
+    }
+  }
+
+  function guardarModificacion() {
+    if (!detalle) return;
+    if (!modForm.descripcion) { showToast("⚠️ La descripción es requerida"); return; }
+    const equipoTexto = modForm.equipoNuevo.trim() || modForm.equipoAfectado || "";
+    const nuevoHist: HistorialRed = {
+      id: uid(), fecha: modForm.fecha, tipo: modForm.tipo, tecnico: modForm.tecnico || currentUser.nombre,
+      descripcion: modForm.observaciones ? `${modForm.descripcion}\n\nObservaciones: ${modForm.observaciones}` : modForm.descripcion,
+      motivo: modForm.motivo || undefined,
+      equipoAfectado: equipoTexto || undefined,
+      costo: modForm.costo || undefined,
+      precioCobrado: modForm.precioCobrado || undefined,
+      fotos: modFotos.length ? modFotos : undefined,
+      documentos: modDocs.length ? modDocs : undefined,
+    };
+
+    let equiposActualizados = detalle.equipos;
+    if (modForm.equipoNuevo.trim()) {
+      equiposActualizados = [...detalle.equipos, { id: uid(), modelo: modForm.equipoNuevo.trim() }];
+    }
+
+    const actualizado: ServicioRed = {
+      ...detalle,
+      equipos: equiposActualizados,
+      historial: [...detalle.historial, nuevoHist],
+      estado: modForm.nuevoEstado || detalle.estado,
+      ultimaModificacion: new Date().toISOString(),
+    };
+
+    const next = redes.map(r => r.id === detalle.id ? actualizado : r);
+    setRedes(next); persist("zRedes", next);
+    setDetalle(actualizado);
+    setModModal(false);
+    addNotif({ tipo: "info", titulo: `${HIST_TIPO_LABELS[modForm.tipo]} registrada`, mensaje: `${detalle.codigoCliente} — ${detalle.clienteNombre}`, modulo: "redes" });
+    showToast("✅ Registrado en el historial");
   }
 
   return (
@@ -2210,27 +2318,141 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
               </div>
             )}
 
-            <div>
-              <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Historial</div>
-              <div className="space-y-2">
-                {detalle.historial.slice().reverse().map(h => (
-                  <div key={h.id} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <Badge className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20 uppercase">{h.tipo}</Badge>
-                      <span className="text-[#5a6a80]">{new Date(h.fecha).toLocaleDateString("es-GT")}</span>
-                    </div>
-                    <p className="text-[#c8d8e8]">{h.descripcion}</p>
-                    <p className="text-[#5a6a80] mt-1">Técnico: {h.tecnico}</p>
-                  </div>
-                ))}
-              </div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-[#8090a8] uppercase">Historial</div>
+              <Btn size="sm" onClick={abrirModificacion}><Plus size={12} /> Nueva modificación</Btn>
             </div>
-
-            <p className="text-[10px] text-[#5a6a80] text-center pt-1">
-              🚧 Registrar modificaciones, cambiar estado y usar equipos del inventario llega en la siguiente parte.
-            </p>
+            <div className="space-y-2 -mt-2">
+              {detalle.historial.slice().reverse().map(h => (
+                <div key={h.id} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <Badge className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20">{HIST_TIPO_LABELS[h.tipo]}</Badge>
+                    <span className="text-[#5a6a80]">{new Date(h.fecha).toLocaleDateString("es-GT")}</span>
+                  </div>
+                  <p className="text-[#c8d8e8] whitespace-pre-wrap">{h.descripcion}</p>
+                  {h.motivo && <p className="text-[#8090a8] mt-1">Motivo: {h.motivo}</p>}
+                  {h.equipoAfectado && <p className="text-[#8090a8]">Equipo: {h.equipoAfectado}</p>}
+                  {(h.costo || h.precioCobrado) && (
+                    <p className="text-[#8090a8]">
+                      {h.costo ? `Costo: ${fmt(h.costo)}` : ""}{h.costo && h.precioCobrado ? " · " : ""}{h.precioCobrado ? `Cobrado: ${fmt(h.precioCobrado)}` : ""}
+                    </p>
+                  )}
+                  {h.fotos && h.fotos.length > 0 && (
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      {h.fotos.map(f => (
+                        <a key={f.id} href={f.data} target="_blank" rel="noopener noreferrer" title={f.nombre}>
+                          <img src={f.data} alt={f.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {h.documentos && h.documentos.length > 0 && (
+                    <div className="flex flex-col gap-1 mt-2">
+                      {h.documentos.map(d => (
+                        <a key={d.id} href={d.data} download={d.nombre} className="flex items-center gap-1.5 text-[#0ea5c8] hover:underline">
+                          <FileText size={11} /> {d.nombre}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[#5a6a80] mt-1.5">Técnico: {h.tecnico}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── Modal: Nueva modificación ── */}
+      <Modal open={modModal} onClose={() => setModModal(false)} title={detalle ? `Nueva modificación — ${detalle.codigoCliente}` : ""} width="max-w-xl">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Tipo *" value={modForm.tipo} onChange={e => setModForm(f => ({ ...f, tipo: e.target.value as HistorialRed["tipo"] }))}>
+              {(["modificacion", "reemplazo", "mantenimiento", "incidencia", "baja"] as const).map(t => (
+                <option key={t} value={t}>{HIST_TIPO_LABELS[t]}</option>
+              ))}
+            </Select>
+            <Input label="Fecha" type="date" value={modForm.fecha} onChange={e => setModForm(f => ({ ...f, fecha: e.target.value }))} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Equipo afectado" value={modForm.equipoAfectado} onChange={e => setModForm(f => ({ ...f, equipoAfectado: e.target.value, equipoNuevo: "" }))}>
+              <option value="">— Ninguno en particular —</option>
+              {(detalle?.equipos || []).map(e => <option key={e.id} value={e.modelo}>{e.modelo}{e.ubicacion ? ` · ${e.ubicacion}` : ""}</option>)}
+            </Select>
+            <Input label="O agregar equipo nuevo" placeholder="Ej. Deco S7 #4" value={modForm.equipoNuevo}
+              onChange={e => setModForm(f => ({ ...f, equipoNuevo: e.target.value, equipoAfectado: "" }))} />
+          </div>
+          {modForm.equipoNuevo.trim() && (
+            <p className="text-[10px] text-[#5a6a80] -mt-2">Este equipo se agregará a la lista de equipos del servicio al guardar.</p>
+          )}
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Descripción *</label>
+            <textarea value={modForm.descripcion} onChange={e => setModForm(f => ({ ...f, descripcion: e.target.value }))} rows={3}
+              placeholder="¿Qué se hizo?"
+              className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Motivo" placeholder="¿Por qué se hizo?" value={modForm.motivo} onChange={e => setModForm(f => ({ ...f, motivo: e.target.value }))} />
+            <Input label="Técnico" value={modForm.tecnico} onChange={e => setModForm(f => ({ ...f, tecnico: e.target.value }))} />
+          </div>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Observaciones</label>
+            <textarea value={modForm.observaciones} onChange={e => setModForm(f => ({ ...f, observaciones: e.target.value }))} rows={2}
+              className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Costo (Q)" type="number" min="0" step="0.01" value={modForm.costo || ""} onChange={e => setModForm(f => ({ ...f, costo: +e.target.value }))} />
+            <Input label="Precio cobrado (Q)" type="number" min="0" step="0.01" value={modForm.precioCobrado || ""} onChange={e => setModForm(f => ({ ...f, precioCobrado: +e.target.value }))} />
+          </div>
+          <p className="text-[10px] text-[#5a6a80] -mt-2">Solo informativo dentro de Redes — no afecta las estadísticas de Ventas.</p>
+
+          <Select label="Actualizar estado del servicio a..." value={modForm.nuevoEstado} onChange={e => setModForm(f => ({ ...f, nuevoEstado: e.target.value as EstadoRed | "" }))}>
+            <option value="">— Mantener estado actual ({detalle ? ESTADO_RED_LABELS[detalle.estado] : ""}) —</option>
+            {(Object.keys(ESTADO_RED_LABELS) as EstadoRed[]).map(s => <option key={s} value={s}>{ESTADO_RED_LABELS[s]}</option>)}
+          </Select>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1.5">Fotos (máx. 5, 2 MB c/u)</label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {modFotos.map(f => (
+                <div key={f.id} className="relative">
+                  <img src={f.data} alt={f.nombre} className="w-14 h-14 object-cover rounded border border-[#1a2235]" />
+                  <button onClick={() => setModFotos(modFotos.filter(x => x.id !== f.id))} className="absolute -top-1.5 -right-1.5 bg-red-500 rounded-full w-4 h-4 flex items-center justify-center text-white"><X size={10} /></button>
+                </div>
+              ))}
+            </div>
+            <label className="flex items-center justify-center gap-2 border border-dashed border-[#1a2235] rounded-lg py-2.5 text-xs text-[#8090a8] hover:border-[#0ea5c8] hover:text-[#0ea5c8] cursor-pointer transition-colors">
+              <Upload size={13} /> {modUploading ? "Cargando..." : "Subir fotos"}
+              <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleFotos(e.target.files)} />
+            </label>
+          </div>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1.5">Documentos (máx. 3, 3 MB c/u)</label>
+            <div className="space-y-1.5 mb-2">
+              {modDocs.map(d => (
+                <div key={d.id} className="flex items-center justify-between bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-1.5">
+                  <span className="text-xs text-[#c8d8e8] truncate flex items-center gap-1.5"><FileText size={12} className="text-[#0ea5c8]" /> {d.nombre}</span>
+                  <button onClick={() => setModDocs(modDocs.filter(x => x.id !== d.id))} className="text-red-400 hover:bg-red-500/10 p-1 rounded flex-shrink-0"><X size={12} /></button>
+                </div>
+              ))}
+            </div>
+            <label className="flex items-center justify-center gap-2 border border-dashed border-[#1a2235] rounded-lg py-2.5 text-xs text-[#8090a8] hover:border-[#0ea5c8] hover:text-[#0ea5c8] cursor-pointer transition-colors">
+              <Upload size={13} /> {modUploading ? "Cargando..." : "Subir documentos"}
+              <input type="file" multiple className="hidden" onChange={e => handleDocs(e.target.files)} />
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="ghost" onClick={() => setModModal(false)}>Cancelar</Btn>
+            <Btn onClick={guardarModificacion}>💾 Guardar</Btn>
+          </div>
+        </div>
       </Modal>
     </div>
   );
