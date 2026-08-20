@@ -1175,7 +1175,7 @@ function CatalogoPage({ catalog, setCatalog, showToast, addNotif, fbUrl }: {
                       </td>
                       <td className="py-2.5 px-2"><Badge className="text-[#0ea5c8] bg-[#0ea5c8]/10 border-[#0ea5c8]/20">{p.cat}</Badge></td>
                       <td className="py-2.5 px-2 text-right">
-                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openModal(p)} className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><Edit2 size={13} /></button>
                           <button onClick={() => dup(p.id)} className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><Copy size={13} /></button>
                           <button onClick={() => del(p.id)} className="p-1.5 text-[#8090a8] hover:text-red-400 rounded hover:bg-red-500/10"><Trash2 size={13} /></button>
@@ -1325,7 +1325,7 @@ function VentasPage({ ventas, setVentas, showToast, addNotif }: {
                       <td className="py-2.5 px-2 text-xs text-yellow-400">{v.conFactura ? fmt(v.total * 0.05) : "—"}</td>
                       <td className="py-2.5 px-2 text-right">
                         <button onClick={() => { if (confirm("¿Eliminar?")) { const n = ventas.filter(x => x.id !== v.id); setVentas(n); persist("zVentas", n); showToast("🗑️ Eliminada"); } }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
                   );
@@ -1424,7 +1424,7 @@ function InventarioPage({ inventario, setInventario, showToast, addNotif }: {
                       </td>
                       <td className="py-2.5 px-2 text-right">
                         <button onClick={() => { if (confirm("¿Eliminar?")) { const n = inventario.filter(x => x.id !== item.id); setInventario(n); persist("zInventario", n); showToast("🗑️ Eliminado"); } }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
                   );
@@ -1516,7 +1516,7 @@ function GastosPage({ gastos, setGastos, showToast, addNotif }: {
                     <td className="py-2.5 px-2 text-xs text-[#8090a8] max-w-[150px] truncate">{g.descripcion || "—"}</td>
                     <td className="py-2.5 px-2 text-right">
                       <button onClick={() => { if (confirm("¿Eliminar?")) { const n = gastos.filter(x => x.id !== g.id); setGastos(n); persist("zGastos", n); showToast("🗑️ Eliminado"); } }}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                     </td>
                   </tr>
                 ))}
@@ -1912,7 +1912,7 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
                       </td>
                       <td className="py-2.5 px-2 text-right">
                         <button onClick={() => { if (confirm("¿Eliminar?")) { const n = mantenimientos.filter(x => x.id !== m.id); setMantenimientos(n); persist("zMant", n); showToast("🗑️ Eliminado"); } }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
                       </td>
                     </tr>
                   );
@@ -2998,7 +2998,7 @@ function UsuariosPage({ users, setUsers, currentUser, showToast, addNotif }: {
                       </button>
                     </td>
                     <td className="py-3 px-3 text-right">
-                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                         <button onClick={() => enviarResetPassword(u)} title="Enviar restablecimiento de contraseña" className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><RefreshCw size={13} /></button>
                         <button onClick={() => openEdit(u)} title="Editar" className="p-1.5 text-[#8090a8] hover:text-white rounded hover:bg-[#1a2235]"><Edit2 size={13} /></button>
                         {!esUnicoAdmin && (
