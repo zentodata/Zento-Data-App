@@ -9,6 +9,7 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
+import { descargarPdfServicioRed, imprimirPdfServicioRed } from "@/app/pdfServicioRed";
 import {
   persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig,
   parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig,
@@ -1962,6 +1963,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const [modUploading, setModUploading] = useState(false);
   const [vista, setVista] = useState<"servicios" | "clientes">("servicios");
   const [expedienteCodigo, setExpedienteCodigo] = useState<string | null>(null);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
   const [editandoCliente, setEditandoCliente] = useState(false);
   const [clienteForm, setClienteForm] = useState({ telefono: "", email: "", direccion: "", observaciones: "" });
 
@@ -2458,7 +2460,14 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                 <div className="text-white font-bold text-base">{detalle.clienteNombre}</div>
                 {detalle.clienteTelefono && <div className="text-xs text-[#8090a8]">{detalle.clienteTelefono}</div>}
               </div>
-              <Badge className={ESTADO_RED_COLORS[detalle.estado]}>{ESTADO_RED_LABELS[detalle.estado]}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge className={ESTADO_RED_COLORS[detalle.estado]}>{ESTADO_RED_LABELS[detalle.estado]}</Badge>
+                <button title="Descargar PDF" disabled={pdfGenerating}
+                  onClick={async () => { setPdfGenerating(true); try { await descargarPdfServicioRed(detalle); } finally { setPdfGenerating(false); } }}
+                  className="text-[#0ea5c8] hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#0ea5c8]/10 disabled:opacity-50">
+                  {pdfGenerating ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs bg-[#060810] border border-[#1a2235] rounded-lg p-3">
