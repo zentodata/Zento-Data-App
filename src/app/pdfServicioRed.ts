@@ -42,6 +42,62 @@ const ESTADO_RGB: Record<ServicioRedPDF["estado"], [number, number, number]> = {
 
 const fmtQ = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
+// ─── Renderizado de texto con soporte de emoji ────────────────────────────────
+// Las fuentes estándar de jsPDF (Helvetica) no incluyen glifos de emoji, así
+// que el texto con emoji se veía roto ("Ø=ÜÊ..."). Para que el PDF se vea
+// EXACTAMENTE como el texto que se escribió (con emojis a color incluidos),
+// ese texto se dibuja primero en un <canvas> del navegador —que sí sabe
+// renderizar emoji— y el resultado se inserta en el PDF como una imagen.
+const EMOJI_FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", Arial, sans-serif';
+
+function textBlockToImage(text: string, maxWidthPt: number, fontSizePt = 8.5, lineHeightPt = 11.5, color = "#323846", bold = false) {
+  const scale = 3; // resolución extra para que se vea nítido en el PDF
+  const measureCanvas = document.createElement("canvas");
+  const mctx = measureCanvas.getContext("2d")!;
+  const font = `${bold ? "bold " : ""}${fontSizePt}px ${EMOJI_FONT_STACK}`;
+  mctx.font = font;
+
+  const paragraphs = text.split("\n");
+  const lines: string[] = [];
+  for (const para of paragraphs) {
+    if (para.trim() === "") { lines.push(""); continue; }
+    const words = para.split(" ");
+    let current = "";
+    for (const word of words) {
+      const test = current ? current + " " + word : word;
+      if (mctx.measureText(test).width > maxWidthPt && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+  }
+
+  const heightPt = Math.max(lines.length * lineHeightPt + 4, lineHeightPt);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(maxWidthPt * scale);
+  canvas.height = Math.ceil(heightPt * scale);
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(scale, scale);
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textBaseline = "top";
+  lines.forEach((line, i) => { if (line) ctx.fillText(line, 0, i * lineHeightPt + 2); });
+
+  return { dataUrl: canvas.toDataURL("image/png"), widthPt: maxWidthPt, heightPt };
+}
+
+function loadImageDims(dataUrl: string): Promise<{ w: number; h: number }> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+    img.onerror = () => resolve({ w: 1, h: 1 });
+    img.src = dataUrl;
+  });
+}
+
 let cachedLogoDataUrl: string | null = null;
 async function getLogoDataUrl(): Promise<string | null> {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
@@ -193,17 +249,31 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
   y += 16;
 
   const historialOrdenado = s.historial.slice().sort((a, b) => a.fecha.localeCompare(b.fecha));
-  historialOrdenado.forEach(h => {
-    const descLines = doc.splitTextToSize(h.descripcion, pageW - marginX * 2 - 10);
+  for (const h of historialOrdenado) {
+    const contentW = pageW - marginX * 2 - 20;
+    const descImg = textBlockToImage(h.descripcion, contentW, 8.5, 11.5, "#323846");
+
     const extras: string[] = [];
     if (h.motivo) extras.push(`Motivo: ${h.motivo}`);
     if (h.equipoAfectado) extras.push(`Equipo: ${h.equipoAfectado}`);
     if (h.resultado) extras.push(`Resultado: ${h.resultado}`);
     if (h.equiposRevisados?.length) extras.push(`Revisados: ${h.equiposRevisados.join(", ")}`);
     if (h.costo || h.precioCobrado) extras.push([h.costo ? `Costo: ${fmtQ(h.costo)}` : "", h.precioCobrado ? `Cobrado: ${fmtQ(h.precioCobrado)}` : ""].filter(Boolean).join("  ·  "));
-    const extraLines = extras.flatMap(e => doc.splitTextToSize(e, pageW - marginX * 2 - 10));
+    const extraLines = extras.flatMap(e => doc.splitTextToSize(e, contentW));
 
-    const blockH = 22 + descLines.length * 11 + extraLines.length * 10 + 14;
+    // Fotos del proyecto: se calculan sus dimensiones para reservar el
+    // espacio correcto antes de dibujar (preservando su proporción real).
+    const fotos = h.fotos || [];
+    const THUMB = 62, GAP = 8;
+    const perRow = Math.max(1, Math.floor((contentW + GAP) / (THUMB + GAP)));
+    let fotosH = 0;
+    let fotoDims: { w: number; h: number }[] = [];
+    if (fotos.length > 0) {
+      fotoDims = await Promise.all(fotos.map(f => loadImageDims(f.data)));
+      fotosH = Math.ceil(fotos.length / perRow) * (THUMB + GAP) + 6;
+    }
+
+    const blockH = 22 + descImg.heightPt + extraLines.length * 10 + fotosH + 14;
     ensureSpace(blockH);
 
     doc.setFillColor(250, 251, 252);
@@ -215,19 +285,36 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     doc.setFont("helvetica", "normal"); doc.setTextColor(90, 100, 120);
     doc.text(`${new Date(h.fecha).toLocaleDateString("es-GT")}  ·  ${h.tecnico}`, pageW - marginX - 10, y + 14, { align: "right" });
 
-    let ly = y + 28;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(50, 56, 70);
-    doc.text(descLines, marginX + 10, ly);
-    ly += descLines.length * 11 + 2;
+    let ly = y + 24;
+    doc.addImage(descImg.dataUrl, "PNG", marginX + 10, ly, descImg.widthPt, descImg.heightPt);
+    ly += descImg.heightPt + 4;
 
     if (extraLines.length) {
-      doc.setFontSize(8); doc.setTextColor(90, 100, 120);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(90, 100, 120);
       doc.text(extraLines, marginX + 10, ly);
-      ly += extraLines.length * 10;
+      ly += extraLines.length * 10 + 4;
+    }
+
+    if (fotos.length > 0) {
+      let fx = marginX + 10, col = 0;
+      fotos.forEach((f, i) => {
+        const dims = fotoDims[i];
+        const ratio = dims.w / dims.h;
+        let dw = THUMB, dh = THUMB;
+        if (ratio > 1) { dh = THUMB / ratio; } else { dw = THUMB * ratio; }
+        const ox = fx + (THUMB - dw) / 2, oy = ly + (THUMB - dh) / 2;
+        try { doc.addImage(f.data, "JPEG", ox, oy, dw, dh); } catch { /* formato no soportado, se omite */ }
+        doc.setDrawColor(226, 230, 238);
+        doc.roundedRect(fx, ly, THUMB, THUMB, 3, 3, "S");
+        col++;
+        if (col >= perRow) { col = 0; fx = marginX + 10; ly += THUMB + GAP; }
+        else { fx += THUMB + GAP; }
+      });
+      if (col !== 0) ly += THUMB + GAP;
     }
 
     y += blockH + 8;
-  });
+  }
 
   // ── Firmas de cierre ──
   ensureSpace(70);
