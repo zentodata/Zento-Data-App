@@ -139,23 +139,25 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
   y += 22;
 
   // ── Datos del servicio ──
-  doc.setFillColor(246, 248, 251);
-  doc.roundedRect(marginX, y, pageW - marginX * 2, 66, 6, 6, "F");
-  const col1 = marginX + 14, col2 = marginX + (pageW - marginX * 2) / 2 + 6;
   const rows: [string, string, string, string][] = [
     ["Tipo de servicio", s.tipoServicio, "Proveedor", s.proveedor || "-"],
     ["Plan", s.plan || "-", "Fecha de instalación", s.fechaInstalacion || "-"],
     ["Último mantenimiento", s.fechaUltimoMant || "-", "Próximo mantenimiento", s.fechaProximoMant || "-"],
   ];
-  let ry = y + 18;
+  const ROW_H = 34;
+  const boxH = rows.length * ROW_H + 16;
+  doc.setFillColor(246, 248, 251);
+  doc.roundedRect(marginX, y, pageW - marginX * 2, boxH, 6, 6, "F");
+  const col1 = marginX + 14, col2 = marginX + (pageW - marginX * 2) / 2 + 6;
+  let ry = y + 20;
   rows.forEach(([l1, v1, l2, v2]) => {
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(90, 100, 120);
-    doc.text(l1.toUpperCase(), col1, ry - 8); doc.text(l2.toUpperCase(), col2, ry - 8);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(30, 34, 44);
-    doc.text(v1, col1, ry + 3); doc.text(v2, col2, ry + 3);
-    ry += 17;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(90, 100, 120);
+    doc.text(l1.toUpperCase(), col1, ry); doc.text(l2.toUpperCase(), col2, ry);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(30, 34, 44);
+    doc.text(v1, col1, ry + 14); doc.text(v2, col2, ry + 14);
+    ry += ROW_H;
   });
-  y += 78;
+  y += boxH + 14;
 
   // ── Equipos ──
   if (s.equipos.length > 0) {
