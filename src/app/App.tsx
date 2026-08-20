@@ -2119,10 +2119,27 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const [modForm, setModForm] = useState(emptyModForm);
   const [modFotos, setModFotos] = useState<ArchivoRed[]>([]);
   const [modDocs, setModDocs] = useState<ArchivoRed[]>([]);
+  const [editingHistId, setEditingHistId] = useState<string | null>(null);
 
   function abrirModificacion(tipoInicial: HistorialRed["tipo"] = "modificacion") {
+    setEditingHistId(null);
     setModForm({ ...emptyModForm, tecnico: currentUser.nombre, tipo: tipoInicial });
     setModFotos([]); setModDocs([]);
+    setModModal(true);
+  }
+
+  function abrirEdicionHistorial(h: HistorialRed) {
+    setEditingHistId(h.id);
+    setModForm({
+      tipo: h.tipo,
+      equipoAfectado: h.equipoAfectado || "", equipoNuevo: "",
+      descripcion: h.descripcion, motivo: h.motivo || "", observaciones: "", resultado: h.resultado || "",
+      tecnico: h.tecnico, fecha: h.fecha,
+      costo: h.costo || 0, precioCobrado: h.precioCobrado || 0,
+      nuevoEstado: "",
+      proximoMant: detalle?.fechaProximoMant || "", equiposRevisados: h.equiposRevisados || [],
+    });
+    setModFotos(h.fotos || []); setModDocs(h.documentos || []);
     setModModal(true);
   }
 
@@ -2175,8 +2192,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     if (!modForm.descripcion) { showToast("⚠️ La descripción es requerida"); return; }
     const esMantenimiento = modForm.tipo === "mantenimiento";
     const equipoTexto = modForm.equipoNuevo.trim() || modForm.equipoAfectado || "";
-    const nuevoHist: HistorialRed = {
-      id: uid(), fecha: modForm.fecha, tipo: modForm.tipo, tecnico: modForm.tecnico || currentUser.nombre,
+    const histEntry: HistorialRed = {
+      id: editingHistId || uid(), fecha: modForm.fecha, tipo: modForm.tipo, tecnico: modForm.tecnico || currentUser.nombre,
       descripcion: modForm.observaciones ? `${modForm.descripcion}\n\nObservaciones: ${modForm.observaciones}` : modForm.descripcion,
       motivo: modForm.motivo || undefined,
       equipoAfectado: equipoTexto || undefined,
@@ -2193,10 +2210,14 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       equiposActualizados = [...detalle.equipos, { id: uid(), modelo: modForm.equipoNuevo.trim() }];
     }
 
+    const nuevoHistorial = editingHistId
+      ? detalle.historial.map(h => h.id === editingHistId ? histEntry : h)
+      : [...detalle.historial, histEntry];
+
     const actualizado: ServicioRed = {
       ...detalle,
       equipos: equiposActualizados,
-      historial: [...detalle.historial, nuevoHist],
+      historial: nuevoHistorial,
       estado: modForm.nuevoEstado || detalle.estado,
       ultimaModificacion: new Date().toISOString(),
       ...(esMantenimiento ? {
@@ -2209,8 +2230,13 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     setRedes(next); persist("zRedes", next);
     setDetalle(actualizado);
     setModModal(false);
-    addNotif({ tipo: "info", titulo: `${HIST_TIPO_LABELS[modForm.tipo]} registrada`, mensaje: `${detalle.codigoCliente} — ${detalle.clienteNombre}`, modulo: "redes" });
-    showToast("✅ Registrado en el historial");
+    if (editingHistId) {
+      addNotif({ tipo: "info", titulo: "Registro de historial editado", mensaje: `${detalle.codigoCliente} — ${detalle.clienteNombre}`, modulo: "redes" });
+      showToast("✅ Registro actualizado");
+    } else {
+      addNotif({ tipo: "info", titulo: `${HIST_TIPO_LABELS[modForm.tipo]} registrada`, mensaje: `${detalle.codigoCliente} — ${detalle.clienteNombre}`, modulo: "redes" });
+      showToast("✅ Registrado en el historial");
+    }
   }
 
   return (
@@ -2478,7 +2504,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                 <div key={h.id} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2">
                   <div className="flex items-center justify-between mb-1">
                     <Badge className="bg-[#0ea5c8]/10 text-[#0ea5c8] border-[#0ea5c8]/20">{HIST_TIPO_LABELS[h.tipo]}</Badge>
-                    <span className="text-[#5a6a80]">{new Date(h.fecha).toLocaleDateString("es-GT")}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[#5a6a80]">{new Date(h.fecha).toLocaleDateString("es-GT")}</span>
+                      <button onClick={() => abrirEdicionHistorial(h)} title="Editar este registro" className="text-[#8090a8] hover:text-[#0ea5c8]"><Edit2 size={12} /></button>
+                    </div>
                   </div>
                   <p className="text-[#c8d8e8] whitespace-pre-wrap">{h.descripcion}</p>
                   {h.motivo && <p className="text-[#8090a8] mt-1">Motivo: {h.motivo}</p>}
@@ -2517,7 +2546,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       </Modal>
 
       {/* ── Modal: Nueva modificación ── */}
-      <Modal open={modModal} onClose={() => setModModal(false)} title={detalle ? `Nueva modificación — ${detalle.codigoCliente}` : ""} width="max-w-xl">
+      <Modal open={modModal} onClose={() => { setModModal(false); setEditingHistId(null); }} title={detalle ? `${editingHistId ? "Editar registro" : "Nueva modificación"} — ${detalle.codigoCliente}` : ""} width="max-w-xl">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Select label="Tipo *" value={modForm.tipo} onChange={e => setModForm(f => ({ ...f, tipo: e.target.value as HistorialRed["tipo"] }))}>
@@ -2642,8 +2671,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="ghost" onClick={() => setModModal(false)}>Cancelar</Btn>
-            <Btn onClick={guardarModificacion}>💾 Guardar</Btn>
+            <Btn variant="ghost" onClick={() => { setModModal(false); setEditingHistId(null); }}>Cancelar</Btn>
+            <Btn onClick={guardarModificacion}>💾 {editingHistId ? "Guardar cambios" : "Guardar"}</Btn>
           </div>
         </div>
       </Modal>
