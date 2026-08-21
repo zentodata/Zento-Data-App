@@ -247,13 +247,11 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     y += 16;
   }
 
-  // ── Historial (siempre en una hoja nueva, para que la primera hoja quede
-  // limpia solo con los datos del servicio) ──
-  doc.addPage();
-  y = 48;
+  // ── Historial (fluye en la misma hoja, junto con los datos del servicio) ──
+  ensureSpace(24);
   doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(15, 23, 42);
   doc.text("HISTORIAL DEL SERVICIO", marginX, y);
-  y += 18;
+  y += 16;
 
   const historialOrdenado = s.historial.slice().sort((a, b) => a.fecha.localeCompare(b.fecha));
   for (const h of historialOrdenado) {
@@ -267,22 +265,9 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     if (h.equiposRevisados?.length) extras.push(`Revisados: ${h.equiposRevisados.join(", ")}`);
     if (h.costo || h.precioCobrado) extras.push([h.costo ? `Costo: ${fmtQ(h.costo)}` : "", h.precioCobrado ? `Cobrado: ${fmtQ(h.precioCobrado)}` : ""].filter(Boolean).join("  ·  "));
     const extraLines = extras.flatMap(e => doc.splitTextToSize(e, contentW));
+    const tieneFotos = (h.fotos || []).length > 0;
 
-    // Fotos del proyecto: grandes, 3 por fila, con título según el tipo de
-    // entrada (instalación / modificación / mantenimiento, etc.)
-    const fotos = h.fotos || [];
-    const FOTOS_POR_FILA = 3;
-    const GAP = 12;
-    const THUMB = (contentW - (FOTOS_POR_FILA - 1) * GAP) / FOTOS_POR_FILA;
-    let fotosH = 0;
-    let fotoDims: { w: number; h: number }[] = [];
-    if (fotos.length > 0) {
-      fotoDims = await Promise.all(fotos.map(f => loadImageDims(f.data)));
-      const filas = Math.ceil(fotos.length / FOTOS_POR_FILA);
-      fotosH = 20 + filas * (THUMB + GAP) + 4;
-    }
-
-    const blockH = 22 + descImg.heightPt + extraLines.length * 10 + fotosH + 14;
+    const blockH = 22 + descImg.heightPt + extraLines.length * 10 + (tieneFotos ? 12 : 0) + 14;
     ensureSpace(blockH);
 
     doc.setFillColor(250, 251, 252);
@@ -304,31 +289,66 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
       ly += extraLines.length * 10 + 4;
     }
 
-    if (fotos.length > 0) {
-      ly += 8;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(70, 78, 94);
-      doc.text(FOTOS_LABELS[h.tipo], marginX + 10, ly);
-      ly += 12;
-      let fx = marginX + 10, col = 0;
+    if (tieneFotos) {
+      doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); doc.setTextColor(150, 156, 168);
+      doc.text(`${h.fotos!.length} foto(s) — ver en la página de fotos`, marginX + 10, ly + 6);
+    }
+
+    y += blockH + 10;
+  }
+
+  // ── Fotos del proyecto (página aparte, agrupadas por cada entrada del
+  // historial que tenga fotos, con título según el tipo de trabajo) ──
+  const entriesConFotos = historialOrdenado.filter(h => (h.fotos || []).length > 0);
+  if (entriesConFotos.length > 0) {
+    doc.addPage();
+    y = 48;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(15, 23, 42);
+    doc.text("FOTOS DEL PROYECTO", marginX, y);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 100, 120);
+    doc.text(s.codigoCliente, pageW - marginX, y, { align: "right" });
+    y += 10;
+    doc.setDrawColor(220, 224, 232);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 24;
+
+    const contentW = pageW - marginX * 2;
+    const FOTOS_POR_FILA = 3;
+    const GAP = 14;
+    const THUMB = (contentW - (FOTOS_POR_FILA - 1) * GAP) / FOTOS_POR_FILA;
+
+    for (const h of entriesConFotos) {
+      const fotos = h.fotos!;
+      const fotoDims = await Promise.all(fotos.map(f => loadImageDims(f.data)));
+      const filas = Math.ceil(fotos.length / FOTOS_POR_FILA);
+      const groupH = 22 + filas * (THUMB + GAP);
+      ensureSpace(groupH);
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); doc.setTextColor(14, 165, 200);
+      doc.text(FOTOS_LABELS[h.tipo], marginX, y);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(90, 100, 120);
+      doc.text(`${new Date(h.fecha).toLocaleDateString("es-GT")}  ·  ${h.tecnico}`, pageW - marginX, y, { align: "right" });
+      y += 16;
+
+      let fx = marginX, col = 0;
       fotos.forEach((f, i) => {
         const dims = fotoDims[i];
         const ratio = dims.w / dims.h;
         let dw = THUMB, dh = THUMB;
         if (ratio > 1) { dh = THUMB / ratio; } else { dw = THUMB * ratio; }
-        const ox = fx + (THUMB - dw) / 2, oy = ly + (THUMB - dh) / 2;
+        const ox = fx + (THUMB - dw) / 2, oy = y + (THUMB - dh) / 2;
         doc.setFillColor(240, 242, 246);
-        doc.roundedRect(fx, ly, THUMB, THUMB, 4, 4, "F");
+        doc.roundedRect(fx, y, THUMB, THUMB, 5, 5, "F");
         try { doc.addImage(f.data, "JPEG", ox, oy, dw, dh); } catch { /* formato no soportado, se omite */ }
         doc.setDrawColor(220, 224, 232);
-        doc.roundedRect(fx, ly, THUMB, THUMB, 4, 4, "S");
+        doc.roundedRect(fx, y, THUMB, THUMB, 5, 5, "S");
         col++;
-        if (col >= FOTOS_POR_FILA) { col = 0; fx = marginX + 10; ly += THUMB + GAP; }
+        if (col >= FOTOS_POR_FILA) { col = 0; fx = marginX; y += THUMB + GAP; }
         else { fx += THUMB + GAP; }
       });
-      if (col !== 0) ly += THUMB + GAP;
+      if (col !== 0) y += THUMB + GAP;
+      y += 12;
     }
-
-    y += blockH + 10;
   }
 
   // ── Firmas de cierre ──
