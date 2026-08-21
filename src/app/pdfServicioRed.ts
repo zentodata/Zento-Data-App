@@ -39,6 +39,11 @@ const ESTADO_RGB: Record<ServicioRedPDF["estado"], [number, number, number]> = {
   activo: [16, 185, 129], pendiente: [234, 179, 8], programado: [14, 165, 200],
   mantenimiento: [245, 158, 11], incidencia: [239, 68, 68], suspendido: [128, 144, 168], baja: [128, 144, 168],
 };
+const FOTOS_LABELS: Record<HistorialRedPDF["tipo"], string> = {
+  instalacion: "FOTOS DE LA INSTALACIÓN", modificacion: "FOTOS DE LA MODIFICACIÓN",
+  reemplazo: "FOTOS DEL REEMPLAZO", mantenimiento: "FOTOS DEL MANTENIMIENTO",
+  incidencia: "FOTOS DE LA INCIDENCIA", baja: "FOTOS DE LA BAJA",
+};
 
 const fmtQ = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
@@ -242,11 +247,13 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     y += 16;
   }
 
-  // ── Historial ──
-  ensureSpace(24);
+  // ── Historial (siempre en una hoja nueva, para que la primera hoja quede
+  // limpia solo con los datos del servicio) ──
+  doc.addPage();
+  y = 48;
   doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(15, 23, 42);
   doc.text("HISTORIAL DEL SERVICIO", marginX, y);
-  y += 16;
+  y += 18;
 
   const historialOrdenado = s.historial.slice().sort((a, b) => a.fecha.localeCompare(b.fecha));
   for (const h of historialOrdenado) {
@@ -261,16 +268,18 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     if (h.costo || h.precioCobrado) extras.push([h.costo ? `Costo: ${fmtQ(h.costo)}` : "", h.precioCobrado ? `Cobrado: ${fmtQ(h.precioCobrado)}` : ""].filter(Boolean).join("  ·  "));
     const extraLines = extras.flatMap(e => doc.splitTextToSize(e, contentW));
 
-    // Fotos del proyecto: se calculan sus dimensiones para reservar el
-    // espacio correcto antes de dibujar (preservando su proporción real).
+    // Fotos del proyecto: grandes, 3 por fila, con título según el tipo de
+    // entrada (instalación / modificación / mantenimiento, etc.)
     const fotos = h.fotos || [];
-    const THUMB = 62, GAP = 8;
-    const perRow = Math.max(1, Math.floor((contentW + GAP) / (THUMB + GAP)));
+    const FOTOS_POR_FILA = 3;
+    const GAP = 12;
+    const THUMB = (contentW - (FOTOS_POR_FILA - 1) * GAP) / FOTOS_POR_FILA;
     let fotosH = 0;
     let fotoDims: { w: number; h: number }[] = [];
     if (fotos.length > 0) {
       fotoDims = await Promise.all(fotos.map(f => loadImageDims(f.data)));
-      fotosH = Math.ceil(fotos.length / perRow) * (THUMB + GAP) + 6;
+      const filas = Math.ceil(fotos.length / FOTOS_POR_FILA);
+      fotosH = 20 + filas * (THUMB + GAP) + 4;
     }
 
     const blockH = 22 + descImg.heightPt + extraLines.length * 10 + fotosH + 14;
@@ -296,6 +305,10 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     }
 
     if (fotos.length > 0) {
+      ly += 8;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(70, 78, 94);
+      doc.text(FOTOS_LABELS[h.tipo], marginX + 10, ly);
+      ly += 12;
       let fx = marginX + 10, col = 0;
       fotos.forEach((f, i) => {
         const dims = fotoDims[i];
@@ -303,17 +316,19 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
         let dw = THUMB, dh = THUMB;
         if (ratio > 1) { dh = THUMB / ratio; } else { dw = THUMB * ratio; }
         const ox = fx + (THUMB - dw) / 2, oy = ly + (THUMB - dh) / 2;
+        doc.setFillColor(240, 242, 246);
+        doc.roundedRect(fx, ly, THUMB, THUMB, 4, 4, "F");
         try { doc.addImage(f.data, "JPEG", ox, oy, dw, dh); } catch { /* formato no soportado, se omite */ }
-        doc.setDrawColor(226, 230, 238);
-        doc.roundedRect(fx, ly, THUMB, THUMB, 3, 3, "S");
+        doc.setDrawColor(220, 224, 232);
+        doc.roundedRect(fx, ly, THUMB, THUMB, 4, 4, "S");
         col++;
-        if (col >= perRow) { col = 0; fx = marginX + 10; ly += THUMB + GAP; }
+        if (col >= FOTOS_POR_FILA) { col = 0; fx = marginX + 10; ly += THUMB + GAP; }
         else { fx += THUMB + GAP; }
       });
       if (col !== 0) ly += THUMB + GAP;
     }
 
-    y += blockH + 8;
+    y += blockH + 10;
   }
 
   // ── Firmas de cierre ──
