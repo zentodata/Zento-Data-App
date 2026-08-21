@@ -740,11 +740,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
         </div>
       </div>
 
-      {isFbConfigFromEnv() ? (
-        <div className="bg-[#0a1f14] border border-emerald-800/50 rounded-xl p-3 mb-4 text-xs text-emerald-300 flex items-center gap-2">
-          ☁️ Firebase configurado globalmente desde Vercel (variables de entorno) — todos los dispositivos que entren a la app usan la misma base de datos automáticamente. No necesitas configurar nada aquí.
-        </div>
-      ) : (
+      {isFbConfigFromEnv() ? null : (
         <>
           {showFb && (
             <div className="bg-[#091520] border border-[#1a4fa8] rounded-xl p-4 mb-4 text-sm text-[#c8d8e8]">
