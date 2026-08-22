@@ -178,7 +178,7 @@ function buildPdf(cot: CotizacionPDF): jsPDF {
 
   if (cot.aplicaIva) {
     doc.setTextColor(90, 100, 120);
-    doc.text(`IVA — Peq. Contribuyente (${cot.ivaPct}%)`, totalsX, y);
+    doc.text(`IVA (${cot.ivaPct}%)`, totalsX, y);
     doc.setTextColor(14, 165, 200);
     doc.text(fmtQ(cot.ivaMonto || 0), pageW - marginX, y, { align: "right" });
     y += 18;

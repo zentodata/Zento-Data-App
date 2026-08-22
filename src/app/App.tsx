@@ -898,7 +898,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
 
         {aplicaIva && (
           <div className="w-32 mt-3">
-            <Input label="IVA — Peq. Contribuyente (%)" type="number" min="0" step="0.01" value={ivaPct} onChange={e => setIvaPct(+e.target.value)} />
+            <Input label="IVA (%)" type="number" min="0" step="0.01" value={ivaPct} onChange={e => setIvaPct(+e.target.value)} />
           </div>
         )}
 
@@ -913,7 +913,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
             )}
             {aplicaIva && (
               <div className="flex justify-between text-sm py-1 gap-8">
-                <span className="text-[#8090a8]">IVA — Peq. Contribuyente ({ivaPct}%)</span>
+                <span className="text-[#8090a8]">IVA ({ivaPct}%)</span>
                 <span className="text-[#0ea5c8]">{fmt(ivaMonto)}</span>
               </div>
             )}
@@ -1214,7 +1214,7 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, ad
               )}
               {editAplicaIva && (
                 <div className="w-32 mt-3">
-                  <Input label="IVA — Peq. Contribuyente (%)" type="number" min="0" step="0.01" value={editIvaPct} onChange={e => setEditIvaPct(+e.target.value)} />
+                  <Input label="IVA (%)" type="number" min="0" step="0.01" value={editIvaPct} onChange={e => setEditIvaPct(+e.target.value)} />
                 </div>
               )}
 
@@ -1229,7 +1229,7 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, ad
                   )}
                   {editAplicaIva && (
                     <div className="flex justify-between text-sm py-1 gap-8">
-                      <span className="text-[#8090a8]">IVA — Peq. Contribuyente ({editIvaPct}%)</span>
+                      <span className="text-[#8090a8]">IVA ({editIvaPct}%)</span>
                       <span className="text-[#0ea5c8]">{fmt(editIvaMonto)}</span>
                     </div>
                   )}
