@@ -976,12 +976,20 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
 
 // ─── PAGE: SEGUIMIENTO ────────────────────────────────────────────────────────
 
-function SeguimientoPage({ cotizaciones, setCotizaciones, showToast, addNotif }: {
-  cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void; showToast: (m: string) => void;
-  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
+function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, addNotif }: {
+  cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void; catalog: Producto[];
+  showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [filter, setFilter] = useState("todas");
   const filtered = filter === "todas" ? cotizaciones : cotizaciones.filter(c => c.estado === filter);
+  const [editing, setEditing] = useState<Cotizacion | null>(null);
+  const [editForm, setEditForm] = useState({ cliente: "", proyecto: "", email: "", whatsapp: "", ubicacion: "", fecha: "", validez: "" });
+  const [editItems, setEditItems] = useState<CotItem[]>([]);
+  const [editAplicaDescuento, setEditAplicaDescuento] = useState(false);
+  const [editDescuentoTipo, setEditDescuentoTipo] = useState<"monto" | "porcentaje">("porcentaje");
+  const [editDescuentoValor, setEditDescuentoValor] = useState(0);
+  const [editAplicaIva, setEditAplicaIva] = useState(false);
+  const [editIvaPct, setEditIvaPct] = useState(5);
 
   function changeEstado(id: string, estado: Cotizacion["estado"]) {
     const next = cotizaciones.map(c => c.id === id ? { ...c, estado } : c);
@@ -996,6 +1004,71 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, showToast, addNotif }:
     const next = cotizaciones.filter(x => x.id !== id);
     setCotizaciones(next); persist("zCotizaciones", next); showToast("🗑️ Cotización eliminada");
     addNotif({ tipo: "warning", titulo: "Cotización eliminada", mensaje: `${c?.id} — ${c?.cliente}`, modulo: "seguimiento" });
+  }
+
+  function siguienteNum() {
+    const nums = cotizaciones.map(x => x.num).filter(n => typeof n === "number" && !isNaN(n));
+    return nums.length > 0 ? Math.max(...nums) + 1 : 1;
+  }
+
+  function duplicarCotizacion(c: Cotizacion) {
+    const num = siguienteNum();
+    const nueva: Cotizacion = {
+      ...c,
+      id: `COT-${String(num).padStart(4, "0")}`,
+      num,
+      fecha: today(),
+      estado: "pendiente",
+      items: c.items.map(i => ({ ...i, id: uid() })),
+    };
+    const next = [nueva, ...cotizaciones];
+    setCotizaciones(next); persist("zCotizaciones", next);
+    addNotif({ tipo: "success", titulo: "Cotización duplicada", mensaje: `${nueva.id} — ${nueva.cliente}, a partir de ${c.id}`, modulo: "seguimiento" });
+    showToast(`✅ Duplicada como ${nueva.id}`);
+  }
+
+  function abrirEdicion(c: Cotizacion) {
+    setEditing(c);
+    setEditForm({ cliente: c.cliente, proyecto: c.proyecto, email: c.email, whatsapp: c.whatsapp, ubicacion: c.ubicacion, fecha: c.fecha, validez: c.validez });
+    setEditItems(c.items.map(i => ({ ...i })));
+    setEditAplicaDescuento(!!c.aplicaDescuento);
+    setEditDescuentoTipo(c.descuentoTipo || "porcentaje");
+    setEditDescuentoValor(c.descuentoValor || 0);
+    setEditAplicaIva(!!c.aplicaIva);
+    setEditIvaPct(c.ivaPct ?? 5);
+  }
+
+  function editAddItem() { setEditItems([...editItems, { id: uid(), qty: 1, nombre: "", desc: "", precio: 0 }]); }
+  function editDelItem(id: string) { setEditItems(editItems.filter(i => i.id !== id)); }
+  function editUpdItem(id: string, k: keyof CotItem, v: string | number) {
+    setEditItems(prev => prev.map(i => i.id === id ? { ...i, [k]: v } : i));
+  }
+  function editFromCatalog(prodId: string, itemId: string) {
+    const p = catalog.find(x => x.id === prodId);
+    if (!p) return;
+    setEditItems(prev => prev.map(i => i.id === itemId ? { ...i, nombre: p.nombre, desc: p.desc, precio: p.precio } : i));
+  }
+
+  const editSubtotal = editItems.reduce((a, i) => a + (i.qty * i.precio), 0);
+  const editDescuentoMonto = editAplicaDescuento ? Math.min(editDescuentoTipo === "porcentaje" ? editSubtotal * (editDescuentoValor / 100) : editDescuentoValor, editSubtotal) : 0;
+  const editBaseGravable = Math.max(editSubtotal - editDescuentoMonto, 0);
+  const editIvaMonto = editAplicaIva ? editBaseGravable * (editIvaPct / 100) : 0;
+  const editTotal = editBaseGravable + editIvaMonto;
+
+  function guardarEdicion() {
+    if (!editing) return;
+    if (!editForm.cliente) { showToast("⚠️ El cliente es requerido"); return; }
+    const actualizada: Cotizacion = {
+      ...editing, ...editForm, items: editItems, subtotal: editSubtotal,
+      aplicaDescuento: editAplicaDescuento, descuentoTipo: editDescuentoTipo, descuentoValor: editDescuentoValor, descuentoMonto: editDescuentoMonto,
+      aplicaIva: editAplicaIva, ivaPct: editIvaPct, ivaMonto: editIvaMonto,
+      total: editTotal,
+    };
+    const next = cotizaciones.map(c => c.id === editing.id ? actualizada : c);
+    setCotizaciones(next); persist("zCotizaciones", next);
+    addNotif({ tipo: "info", titulo: "Cotización editada", mensaje: `${actualizada.id} — ${actualizada.cliente}`, modulo: "seguimiento" });
+    showToast("✅ Cotización actualizada");
+    setEditing(null);
   }
 
   const stats = { total: cotizaciones.length, pendiente: cotizaciones.filter(c => c.estado === "pendiente").length, enviada: cotizaciones.filter(c => c.estado === "enviada").length, aprobada: cotizaciones.filter(c => c.estado === "aprobada").length };
@@ -1039,11 +1112,17 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, showToast, addNotif }:
                     <div className="text-xs text-[#c8d8e8] mt-1">{c.cliente} · {c.proyecto}</div>
                     <div className="text-xs text-[#8090a8] mt-0.5">{c.fecha} · <span className="text-[#0ea5c8] font-semibold">{fmt(c.total)}</span></div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
                     <select value={c.estado} onChange={e => changeEstado(c.id, e.target.value as Cotizacion["estado"])}
                       className="bg-[#0b0e1a] border border-[#1a2235] rounded-lg px-2 py-1 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]">
                       {["pendiente","enviada","aprobada","rechazada"].map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
+                    <button onClick={() => abrirEdicion(c)} title="Editar cotización"
+                      className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Edit2 size={13} /></button>
+                    <button onClick={() => duplicarCotizacion(c)} title="Duplicar cotización"
+                      className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Copy size={13} /></button>
+                    <button onClick={() => descargarPdfCotizacion(c)} title="Descargar PDF"
+                      className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Download size={13} /></button>
                     <button onClick={() => eliminarCotizacion(c.id)} title="Eliminar cotización"
                       className="p-1.5 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={13} /></button>
                   </div>
@@ -1053,6 +1132,119 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, showToast, addNotif }:
           </div>
         )}
       </Card>
+
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing ? `Editar ${editing.id}` : ""} width="max-w-2xl">
+        {editing && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label="Cliente *" value={editForm.cliente} onChange={e => setEditForm(f => ({ ...f, cliente: e.target.value }))} />
+              <Input label="Proyecto" value={editForm.proyecto} onChange={e => setEditForm(f => ({ ...f, proyecto: e.target.value }))} />
+              <Input label="Email" type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+              <Input label="WhatsApp" value={editForm.whatsapp} onChange={e => setEditForm(f => ({ ...f, whatsapp: e.target.value }))} />
+              <div className="sm:col-span-2"><Input label="Ubicación" value={editForm.ubicacion} onChange={e => setEditForm(f => ({ ...f, ubicacion: e.target.value }))} /></div>
+              <Input label="Fecha" type="date" value={editForm.fecha} onChange={e => setEditForm(f => ({ ...f, fecha: e.target.value }))} />
+              <Input label="Validez" value={editForm.validez} onChange={e => setEditForm(f => ({ ...f, validez: e.target.value }))} />
+            </div>
+
+            <div>
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-2">Productos / Servicios</div>
+              <div className="grid grid-cols-[50px_1fr_100px_90px_30px] gap-1.5 mb-1 px-0.5">
+                {["Cant.", "Producto / Servicio", "P. Unit.", "Total", ""].map((h, i) => (
+                  <div key={i} className={`text-[10px] font-bold text-[#8090a8] uppercase ${i >= 2 ? "text-right" : ""}`}>{h}</div>
+                ))}
+              </div>
+              {editItems.map(item => (
+                <div key={item.id} className="grid grid-cols-[50px_1fr_100px_90px_30px] gap-1.5 items-start py-2 border-b border-[#0f1220] min-w-0">
+                  <input type="number" min="1" value={item.qty} onChange={e => editUpdItem(item.id, "qty", +e.target.value)}
+                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-center focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <select
+                      value={catalog.find(p => p.nombre === item.nombre)?.id || ""}
+                      onChange={e => {
+                        if (e.target.value) editFromCatalog(e.target.value, item.id);
+                        else { editUpdItem(item.id, "nombre", ""); editUpdItem(item.id, "desc", ""); editUpdItem(item.id, "precio", 0); }
+                      }}
+                      className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0">
+                      <option value="">— Seleccionar producto del catálogo —</option>
+                      {catalog.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.marca ? ` · ${p.marca}` : ""}</option>)}
+                    </select>
+                    <input value={item.nombre} onChange={e => editUpdItem(item.id, "nombre", e.target.value)} placeholder="Nombre del producto/servicio"
+                      className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
+                    <input value={item.desc} onChange={e => editUpdItem(item.id, "desc", e.target.value)} placeholder="Descripción (opcional)"
+                      className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#8090a8] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
+                  </div>
+                  <input type="number" min="0" step="0.01" value={item.precio} onChange={e => editUpdItem(item.id, "precio", +e.target.value)}
+                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] text-right focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
+                  <div className="text-right text-sm font-bold text-white pt-1.5 truncate">{fmt(item.qty * item.precio)}</div>
+                  <button onClick={() => editDelItem(item.id)} className="text-red-400 hover:text-red-300 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 mt-1">
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button onClick={editAddItem} className="w-full mt-3 py-2 border border-dashed border-[#1a2235] rounded-xl text-[#0ea5c8] text-sm font-semibold hover:border-[#0ea5c8] transition-colors">
+                + Agregar ítem
+              </button>
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button type="button" onClick={() => setEditAplicaDescuento(v => !v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${editAplicaDescuento ? "bg-amber-500/10 border-amber-500 text-amber-400" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+                  🏷️ Descuento
+                </button>
+                <button type="button" onClick={() => setEditAplicaIva(v => !v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${editAplicaIva ? "bg-[#0ea5c8]/10 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+                  🧾 IVA
+                </button>
+              </div>
+
+              {editAplicaDescuento && (
+                <div className="flex items-end gap-2 mt-3 flex-wrap">
+                  <div>
+                    <label className="text-xs font-semibold text-[#8090a8] mb-1.5 block">Tipo</label>
+                    <select value={editDescuentoTipo} onChange={e => setEditDescuentoTipo(e.target.value as "monto" | "porcentaje")}
+                      className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] h-[38px] focus:outline-none focus:border-[#0ea5c8]">
+                      <option value="porcentaje">Porcentaje (%)</option>
+                      <option value="monto">Monto (Q)</option>
+                    </select>
+                  </div>
+                  <div className="w-32">
+                    <Input label={editDescuentoTipo === "monto" ? "Descuento (Q)" : "Descuento (%)"} type="number" min="0" step="0.01"
+                      value={editDescuentoValor || ""} onChange={e => setEditDescuentoValor(+e.target.value)} />
+                  </div>
+                </div>
+              )}
+              {editAplicaIva && (
+                <div className="w-32 mt-3">
+                  <Input label="IVA — Peq. Contribuyente (%)" type="number" min="0" step="0.01" value={editIvaPct} onChange={e => setEditIvaPct(+e.target.value)} />
+                </div>
+              )}
+
+              <div className="flex justify-end mt-4">
+                <div className="bg-[#060810] border border-[#1a2235] rounded-xl px-5 py-3 min-w-48">
+                  <div className="flex justify-between text-sm py-1 gap-8"><span className="text-[#8090a8]">Subtotal</span><span className="text-[#0ea5c8]">{fmt(editSubtotal)}</span></div>
+                  {editAplicaDescuento && editDescuentoMonto > 0 && (
+                    <div className="flex justify-between text-sm py-1 gap-8">
+                      <span className="text-amber-400">Descuento{editDescuentoTipo === "porcentaje" ? ` (${editDescuentoValor}%)` : ""}</span>
+                      <span className="text-amber-400">– {fmt(editDescuentoMonto)}</span>
+                    </div>
+                  )}
+                  {editAplicaIva && (
+                    <div className="flex justify-between text-sm py-1 gap-8">
+                      <span className="text-[#8090a8]">IVA — Peq. Contribuyente ({editIvaPct}%)</span>
+                      <span className="text-[#0ea5c8]">{fmt(editIvaMonto)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-base font-black py-1 border-t border-[#1a2235] mt-1 pt-2 gap-8"><span className="text-white">TOTAL</span><span className="text-[#0ea5c8]">{fmt(editTotal)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="ghost" onClick={() => setEditing(null)}>Cancelar</Btn>
+              <Btn onClick={guardarEdicion}>💾 Guardar cambios</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -3296,7 +3488,7 @@ export default function App() {
     const props = { showToast, addNotif };
     switch (activeTab) {
       case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} fbUrl={fbUrl} onFbConfigSaved={handleFbConfigSaved} onFbDisconnect={handleFbDisconnect} {...props} />;
-      case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} {...props} />;
+      case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} catalog={catalog} {...props} />;
       case "catalogo": return <CatalogoPage catalog={catalog} setCatalog={setCatalog} fbUrl={fbUrl} {...props} />;
       case "ventas": return <VentasPage ventas={ventas} setVentas={setVentas} {...props} />;
       case "inventario": return <InventarioPage inventario={inventario} setInventario={setInventario} {...props} />;
