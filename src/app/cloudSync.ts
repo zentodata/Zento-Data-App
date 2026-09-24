@@ -296,3 +296,24 @@ export async function fetchAllUserProfiles<T>(): Promise<Record<string, T> | nul
     return null;
   }
 }
+
+// ── Resumen para Zento Hub (/hub/summary) ───────────────────────────────────
+// Nodo pequeño con conteos y totales ya calculados. El Hub lee solo este nodo.
+
+/** Publica el resumen para el Hub. Falla en silencio: nunca debe afectar al CRM. */
+export async function publishHubSummary(summary: unknown): Promise<boolean> {
+  const fbUrl = getFbUrl();
+  if (!fbUrl) return false;
+  try {
+    const authParam = await authQueryParam();
+    if (!authParam) return false; // sin sesión real no se publica
+    const r = await fetch(`${fbUrl}/hub/summary.json${authParam}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(summary),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}

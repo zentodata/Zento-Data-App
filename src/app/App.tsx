@@ -14,8 +14,9 @@ import {
   persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig,
   parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig,
   onAuthChange, getCurrentAuthUser, signInEmail, signOutFb, sendPasswordReset, createUserEmail,
-  getUserProfile, setUserProfile, fetchAllUserProfiles,
+  getUserProfile, setUserProfile, fetchAllUserProfiles, publishHubSummary,
 } from "@/app/cloudSync";
+import { buildHubSummary } from "@/app/hubSummary";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -3322,7 +3323,13 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [profileIssue, setProfileIssue] = useState<{ type: "missing" | "disabled"; uid: string; email: string } | null>(null);
-  const [activeTab, setActiveTab] = useState("cotizador");
+  // Permite abrir una pestaña directo desde el Hub: https://tu-crm/?tab=ventas
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      const t = new URLSearchParams(window.location.search).get("tab");
+      return t && TABS.some(x => x.id === t) ? t : "cotizador";
+    } catch { return "cotizador"; }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { msg: toastMsg, show: showToast } = useToast();
 
@@ -3418,6 +3425,16 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [currentUser, fbUrl, cloudLoaded]);
+
+  // Publica un resumen para Zento Hub cada vez que cambian los datos (con debounce).
+  // Los usuarios "visor" no publican.
+  useEffect(() => {
+    if (!cloudLoaded || !currentUser || !fbUrl || currentUser.rol === "visor") return;
+    const t = window.setTimeout(() => {
+      publishHubSummary(buildHubSummary({ cotizaciones, ventas, inventario, gastos, pagos, mantenimientos, redes, notifs }));
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [cloudLoaded, currentUser, fbUrl, cotizaciones, ventas, inventario, gastos, pagos, mantenimientos, redes, notifs]);
 
   const alertedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
