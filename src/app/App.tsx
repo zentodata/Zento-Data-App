@@ -423,7 +423,7 @@ function LoginScreen({ onLogin, fbReady }: { onLogin: (email: string, password: 
         "auth/invalid-email": "El email no es válido.",
         "auth/user-disabled": "Esta cuenta fue deshabilitada.",
         "auth/too-many-requests": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
-        "auth/network-request-failed": "Sin conexión a internet.",
+        "auth/network-request-failed": "Sin conexión a internet o la sesión anterior se quedó dormida. Intenta de nuevo.",
       };
       setErr(mensajes[code] || "No se pudo iniciar sesión. Verifica tus credenciales.");
     } finally {

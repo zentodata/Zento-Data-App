@@ -1,0 +1,66 @@
+{
+  "id": "com.zentodata.app",
+  "name": "Zento Data — Sistema de Gestión",
+  "short_name": "ZentoData",
+  "description": "Sistema profesional de cotización y gestión para empresas de seguridad electrónica en Guatemala.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#07090f",
+  "theme_color": "#0ea5c8",
+  "lang": "es-GT",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icons/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icons/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Zento Data — Cotizador"
+    },
+    {
+      "src": "/icons/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Zento Data — Dashboard"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva Cotización",
+      "short_name": "Cotización",
+      "url": "/?tab=cotizador",
+      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Hoja de Trabajo",
+      "short_name": "Hoja",
+      "url": "/?tab=hoja",
+      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

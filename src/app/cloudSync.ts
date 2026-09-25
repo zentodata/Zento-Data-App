@@ -22,6 +22,31 @@ import { getEnvFirebaseConfig } from "./firebaseConfig";
 const FB_PATH = "zentodata";
 const USERS_PATH = "users";
 
+// ── Ayuda: evita conexiones "colgadas" ──────────────────────────────────────
+// Si el equipo/pestaña estuvo mucho tiempo inactivo (dormido, en segundo
+// plano), el navegador puede dejar sockets que parecen vivos pero ya no
+// responden. Un fetch normal se queda esperando para siempre (sin error,
+// sin éxito), por eso "no pasa nada" al iniciar sesión hasta recargar la
+// página. Estas ayudas ponen un límite de tiempo y fuerzan una conexión
+// nueva en el siguiente intento.
+const NET_TIMEOUT_MS = 12000;
+
+function fetchWithTimeout(url: string, options?: RequestInit, ms = NET_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms = NET_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(Object.assign(new Error("timeout"), { code: "app/timeout" })), ms);
+    promise.then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 /** Colecciones de datos de negocio que se sincronizan bajo /zentodata */
 export const CLOUD_KEYS = [
   "zentocat", "zCotizaciones", "zVentas", "zInventario",
@@ -132,8 +157,27 @@ export function getCurrentAuthUser(): FirebaseAuthUser | null {
 export async function signInEmail(email: string, password: string): Promise<FirebaseAuthUser> {
   const a = getMainAuth();
   if (!a) throw new Error("Firebase no está configurado");
-  const cred = await signInWithEmailAndPassword(a, email, password);
-  return cred.user;
+  try {
+    const cred = await withTimeout(signInWithEmailAndPassword(a, email, password));
+    return cred.user;
+  } catch (err) {
+    if ((err as { code?: string })?.code !== "app/timeout") throw err;
+    // La conexión quedó colgada (típico tras dejar el equipo/pestaña inactiva
+    // mucho tiempo). Reiniciamos la app de Firebase para forzar sockets
+    // nuevos y reintentamos una sola vez antes de rendirnos.
+    resetMainApp();
+    const a2 = getMainAuth();
+    if (!a2) throw err;
+    try {
+      const cred = await withTimeout(signInWithEmailAndPassword(a2, email, password));
+      return cred.user;
+    } catch (err2) {
+      if ((err2 as { code?: string })?.code === "app/timeout") {
+        throw Object.assign(new Error("timeout"), { code: "auth/network-request-failed" });
+      }
+      throw err2;
+    }
+  }
 }
 
 export async function signOutFb(): Promise<void> {
@@ -174,7 +218,7 @@ async function authQueryParam(): Promise<string> {
   const user = getCurrentAuthUser();
   if (!user) return "";
   try {
-    const token = await user.getIdToken();
+    const token = await withTimeout(user.getIdToken());
     return `?auth=${token}`;
   } catch {
     return "";
@@ -213,7 +257,7 @@ export function persist(key: string, value: unknown) {
   pendingTimers[key] = window.setTimeout(async () => {
     try {
       const authParam = await authQueryParam();
-      const r = await fetch(`${fbUrl}/${FB_PATH}/${key}.json${authParam}`, {
+      const r = await fetchWithTimeout(`${fbUrl}/${FB_PATH}/${key}.json${authParam}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(value),
@@ -230,7 +274,7 @@ export async function fetchCloud<T>(key: string): Promise<T | null> {
   if (!fbUrl) return null;
   try {
     const authParam = await authQueryParam();
-    const r = await fetch(`${fbUrl}/${FB_PATH}/${key}.json${authParam}`);
+    const r = await fetchWithTimeout(`${fbUrl}/${FB_PATH}/${key}.json${authParam}`);
     if (!r.ok) return null;
     const d = await r.json();
     return d === null || d === undefined ? null : (d as T);
@@ -255,15 +299,23 @@ export async function fetchAllCloud(): Promise<Partial<Record<typeof CLOUD_KEYS[
 export async function getUserProfile<T>(uidValue: string): Promise<T | null> {
   const fbUrl = getFbUrl();
   if (!fbUrl) return null;
-  try {
-    const authParam = await authQueryParam();
-    const r = await fetch(`${fbUrl}/${USERS_PATH}/${uidValue}.json${authParam}`);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d === null || d === undefined ? null : (d as T);
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const authParam = await authQueryParam();
+      const r = await fetchWithTimeout(`${fbUrl}/${USERS_PATH}/${uidValue}.json${authParam}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return d === null || d === undefined ? null : (d as T);
+    } catch (err) {
+      // La conexión se abortó por quedarse colgada (equipo/pestaña inactiva
+      // mucho tiempo). Reintenta una sola vez con sockets nuevos antes de
+      // asumir que el perfil no existe — evita mostrar "perfil no configurado"
+      // cuando en realidad solo fue un timeout de red.
+      if (attempt === 0 && (err as { name?: string })?.name === "AbortError") continue;
+      return null;
+    }
   }
+  return null;
 }
 
 export async function setUserProfile(uidValue: string, profile: unknown): Promise<boolean> {
@@ -271,7 +323,7 @@ export async function setUserProfile(uidValue: string, profile: unknown): Promis
   if (!fbUrl) return false;
   try {
     const authParam = await authQueryParam();
-    const r = await fetch(`${fbUrl}/${USERS_PATH}/${uidValue}.json${authParam}`, {
+    const r = await fetchWithTimeout(`${fbUrl}/${USERS_PATH}/${uidValue}.json${authParam}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(profile),
@@ -288,7 +340,7 @@ export async function fetchAllUserProfiles<T>(): Promise<Record<string, T> | nul
   if (!fbUrl) return null;
   try {
     const authParam = await authQueryParam();
-    const r = await fetch(`${fbUrl}/${USERS_PATH}.json${authParam}`);
+    const r = await fetchWithTimeout(`${fbUrl}/${USERS_PATH}.json${authParam}`);
     if (!r.ok) return null;
     const d = await r.json();
     return d === null || d === undefined ? null : (d as Record<string, T>);
@@ -307,7 +359,7 @@ export async function publishHubSummary(summary: unknown): Promise<boolean> {
   try {
     const authParam = await authQueryParam();
     if (!authParam) return false; // sin sesión real no se publica
-    const r = await fetch(`${fbUrl}/hub/summary.json${authParam}`, {
+    const r = await fetchWithTimeout(`${fbUrl}/hub/summary.json${authParam}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(summary),
