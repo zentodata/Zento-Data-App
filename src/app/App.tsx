@@ -99,6 +99,28 @@ type ServicioRed = {
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 
+const cotNumOf = (c: { num?: number; id?: string }) => {
+  const n = typeof c.num === "number" && !isNaN(c.num) ? c.num : 0;
+  const m = /(\d+)\s*$/.exec(c.id || "");
+  return Math.max(n, m ? parseInt(m[1], 10) : 0);
+};
+const nextCotNum = (list: Cotizacion[]) => list.reduce((mx, c) => Math.max(mx, cotNumOf(c)), 0) + 1;
+// Repara IDs duplicados: la cotización más antigua conserva el número, las demás reciben uno nuevo
+const fixDupCots = (list: Cotizacion[]): Cotizacion[] => {
+  const seen = new Set<string>();
+  let mx = list.reduce((m, c) => Math.max(m, cotNumOf(c)), 0);
+  const dupIdx = new Set<number>();
+  // recorre de la más antigua a la más nueva (la lista guarda las nuevas primero)
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (seen.has(list[i].id)) dupIdx.add(i); else seen.add(list[i].id);
+  }
+  if (!dupIdx.size) return list;
+  const out = list.slice();
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (dupIdx.has(i)) { mx++; out[i] = { ...list[i], num: mx, id: `COT-${String(mx).padStart(4, "0")}` }; }
+  }
+  return out;
+};
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const fmt = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const ls = <T,>(k: string, def: T): T => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : def; } catch { return def; } };
@@ -706,7 +728,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
 
   function guardar() {
     if (!form.cliente) { showToast("⚠️ El cliente es requerido"); return; }
-    const num = cotizaciones.length + 1;
+    const num = nextCotNum(cotizaciones);
     const cot: Cotizacion = {
       id: `COT-${String(num).padStart(4,"0")}`,
       num, ...form, servicio: svc || "", items, subtotal,
@@ -1008,8 +1030,7 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, ad
   }
 
   function siguienteNum() {
-    const nums = cotizaciones.map(x => x.num).filter(n => typeof n === "number" && !isNaN(n));
-    return nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return nextCotNum(cotizaciones);
   }
 
   function duplicarCotizacion(c: Cotizacion) {
@@ -3336,7 +3357,7 @@ export default function App() {
   // Data state
   const [users, setUsers] = useState<User[]>([]);
   const [catalog, setCatalog] = useState<Producto[]>(() => ls("zentocat", null) ?? DEFAULT_CATALOG);
-  const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>(() => ls("zCotizaciones", []));
+  const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>(() => { const l = fixDupCots(ls("zCotizaciones", []) as Cotizacion[]); lsSet("zCotizaciones", l); return l; });
   const [ventas, setVentas] = useState<Venta[]>(() => ls("zVentas", []));
   const [inventario, setInventario] = useState<ItemInv[]>(() => ls("zInventario", []));
   const [gastos, setGastos] = useState<Gasto[]>(() => ls("zGastos", []));
@@ -3406,7 +3427,7 @@ export default function App() {
           const cloud = await fetchAllCloud();
           if (cancelled) return;
           if (cloud.zentocat) { setCatalog(cloud.zentocat as Producto[]); lsSet("zentocat", cloud.zentocat); }
-          if (cloud.zCotizaciones) { setCotizaciones(cloud.zCotizaciones as Cotizacion[]); lsSet("zCotizaciones", cloud.zCotizaciones); }
+          if (cloud.zCotizaciones) { const fx = fixDupCots(cloud.zCotizaciones as Cotizacion[]); setCotizaciones(fx); lsSet("zCotizaciones", fx); }
           if (cloud.zVentas) { setVentas(cloud.zVentas as Venta[]); lsSet("zVentas", cloud.zVentas); }
           if (cloud.zInventario) { setInventario(cloud.zInventario as ItemInv[]); lsSet("zInventario", cloud.zInventario); }
           if (cloud.zGastos) { setGastos(cloud.zGastos as Gasto[]); lsSet("zGastos", cloud.zGastos); }
