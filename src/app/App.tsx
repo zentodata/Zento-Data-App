@@ -251,7 +251,13 @@ function evaluarZona(dir: string): { riesgo: number; msg: string } | null {
   if (!dir.trim()) return null;
   const d = dir.toLowerCase();
   for (const [z, r] of ZONAS_RIESGO) {
-    if (d.includes(z)) return {
+    // Si la clave termina en un número de zona (p. ej. "zona 1"), exige que ese número
+    // no siga con más dígitos — si no, "zona 1" también hacía match con "zona 14", "zona 12", etc.
+    const matchZonaNum = z.match(/^(.*zona )(\d+)$/);
+    const encontrado = matchZonaNum
+      ? new RegExp(`${matchZonaNum[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}0*${matchZonaNum[2]}(?!\\d)`).test(d)
+      : d.includes(z);
+    if (encontrado) return {
       riesgo: r,
       msg: r >= 6 ? `⚠️ ZONA DE RIESGO ALTO: ${z.toUpperCase()} (Nivel ${r}/10)` : `✅ ${z} (Riesgo bajo ${r}/10)`
     };
