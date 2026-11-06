@@ -344,7 +344,6 @@ function Modal({ open, onClose, title, children, width = "max-w-lg" }: {
         <motion.div
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          onClick={e => e.target === e.currentTarget && onClose()}
         >
           <motion.div
             className={`bg-[#0b0e1a] border border-[#1a2235] rounded-2xl w-full ${width} max-h-[90vh] overflow-y-auto`}
