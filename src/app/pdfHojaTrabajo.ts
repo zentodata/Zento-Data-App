@@ -128,7 +128,7 @@ function buildPdf(h: HojaPDF): jsPDF {
     doc.setTextColor(50, 56, 70);
     h.servicios.forEach(s => {
       ensureSpace(15);
-      doc.text(`✓  ${s}`, marginX, y);
+      doc.text(`•  ${s}`, marginX, y);
       y += 15;
     });
     y += 10;
@@ -186,17 +186,18 @@ function buildPdf(h: HojaPDF): jsPDF {
 
   // ── Patrón de desbloqueo (solo si el usuario definió alguno) ──
   if (h.patron.length > 0) {
-    ensureSpace(130);
+    ensureSpace(170);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.setTextColor(30, 34, 44);
     doc.text("PATRÓN DE DESBLOQUEO", marginX, y);
     y += 18;
 
-    const gridSize = 90;
+    const gridSize = 84;
     const cell = gridSize / 2;
-    const startX = marginX;
-    const startY = y;
+    const radius = 9;
+    const startX = marginX + radius;
+    const startY = y + radius;
     const pos = (n: number) => {
       const idx = n - 1;
       const col = idx % 3, row = Math.floor(idx / 3);
@@ -211,16 +212,29 @@ function buildPdf(h: HojaPDF): jsPDF {
     }
     for (let n = 1; n <= 9; n++) {
       const p = pos(n);
-      const selected = h.patron.includes(n);
+      const paso = h.patron.indexOf(n); // -1 si no fue tocado
+      const selected = paso !== -1;
       doc.setFillColor(selected ? 14 : 240, selected ? 165 : 240, selected ? 200 : 244);
       doc.setDrawColor(selected ? 14 : 200, selected ? 165 : 205, selected ? 200 : 215);
-      doc.circle(p.x, p.y, 6, "FD");
+      doc.circle(p.x, p.y, radius, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(selected ? 255 : 150, selected ? 255 : 158, selected ? 255 : 172);
+      // En los puntos tocados se muestra el número de PASO (orden en que se traza,
+      // igual que en el formulario en pantalla); en los no tocados, su posición fija
+      // en la cuadrícula — así el cliente lee directo "1º, 2º, 3º..." sin tabla aparte.
+      const label = selected ? String(paso + 1) : String(n);
+      doc.text(label, p.x, p.y + 3, { align: "center" });
     }
+
+    const gridBottom = startY + gridSize + radius;
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(90, 100, 120);
-    doc.text(`Secuencia: ${h.patron.join(" → ")}`, startX + gridSize + 20, startY + gridSize / 2);
-    y = startY + gridSize + 20;
+    const ordenTxt = `Orden de trazo: paso 1 en "${h.patron[0]}" hasta paso ${h.patron.length} en "${h.patron[h.patron.length - 1]}" (posiciones de cuadrícula: ${h.patron.join(" - ")})`;
+    const ordenLines = doc.splitTextToSize(ordenTxt, pageW - marginX * 2);
+    doc.text(ordenLines, marginX, gridBottom + 16);
+    y = gridBottom + 16 + ordenLines.length * 11 + 6;
   }
 
   // ── Observaciones y cláusulas ──
