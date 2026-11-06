@@ -50,7 +50,7 @@ function withTimeout<T>(promise: Promise<T>, ms = NET_TIMEOUT_MS): Promise<T> {
 /** Colecciones de datos de negocio que se sincronizan bajo /zentodata */
 export const CLOUD_KEYS = [
   "zentocat", "zCotizaciones", "zVentas", "zInventario",
-  "zGastos", "zPagos", "zMant", "zNotifs", "zHojas", "zRedes",
+  "zGastos", "zPagos", "zMant", "zNotifs", "zHojas", "zRedes", "zClientes",
 ] as const;
 
 export type FirebaseWebConfig = {

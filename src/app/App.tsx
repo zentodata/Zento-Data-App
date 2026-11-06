@@ -10,6 +10,7 @@ import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 import { descargarPdfCotizacion, imprimirPdfCotizacion } from "@/app/pdfCotizacion";
 import { descargarPdfServicioRed, imprimirPdfServicioRed } from "@/app/pdfServicioRed";
+import { descargarPdfHoja, imprimirPdfHoja, type HojaPDF } from "@/app/pdfHojaTrabajo";
 import {
   persist, fetchAllCloud, fetchCloud, onSyncStatusChange, getFbUrl, getFbConfig, saveFbConfig, clearFbConfig,
   parseFirebaseConfigText, isFbConfigFromEnv, type FirebaseWebConfig,
@@ -56,6 +57,10 @@ type Cotizacion = {
 type Venta = {
   id: string; fecha: string; cliente: string; total: number; inversion: number; conFactura: boolean;
   facturaPdf?: string; facturaNombre?: string;
+};
+type Cliente = {
+  id: string; nombre: string; proyecto: string; email: string; whatsapp: string; ubicacion: string;
+  actualizado: string;
 };
 type ItemInv = { id: string; nombre: string; stock: number; minimo: number; precio: number };
 type Gasto = { id: string; fecha: string; categoria: string; monto: number; descripcion: string };
@@ -689,8 +694,9 @@ function Toast({ msg }: { msg: string | null }) {
 
 // ─── PAGE: COTIZADOR ──────────────────────────────────────────────────────────
 
-function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addNotif, fbUrl, onFbConfigSaved, onFbDisconnect }: {
+function CotizadorPage({ catalog, cotizaciones, setCotizaciones, clientes, setClientes, showToast, addNotif, fbUrl, onFbConfigSaved, onFbDisconnect }: {
   catalog: Producto[]; cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void;
+  clientes: Cliente[]; setClientes: (c: Cliente[]) => void;
   showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
   fbUrl: string; onFbConfigSaved: (config: FirebaseWebConfig) => void; onFbDisconnect: () => void;
 }) {
@@ -698,6 +704,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
   const [items, setItems] = useState<CotItem[]>([{ id: uid(), qty: 1, nombre: "", desc: "", precio: 0 }]);
   const [form, setForm] = useState({ cliente: "", proyecto: "", email: "", whatsapp: "", ubicacion: "", fecha: today(), validez: "15 días calendario" });
   const [zonaAlert, setZonaAlert] = useState<{ riesgo: number; msg: string } | null>(null);
+  const [showClienteSug, setShowClienteSug] = useState(false);
   const [showHist, setShowHist] = useState(false);
   const [fbConfigText, setFbConfigText] = useState("");
   const [fbConfigErr, setFbConfigErr] = useState("");
@@ -748,6 +755,31 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
   function checkZona(v: string) {
     setForm(f => ({ ...f, ubicacion: v }));
     setZonaAlert(evaluarZona(v));
+  }
+
+  const clienteSugerencias = form.cliente.trim().length > 0
+    ? clientes.filter(c => c.nombre.toLowerCase().includes(form.cliente.trim().toLowerCase())).slice(0, 6)
+    : [];
+
+  function elegirCliente(c: Cliente) {
+    setForm(f => ({ ...f, cliente: c.nombre, proyecto: c.proyecto, email: c.email, whatsapp: c.whatsapp, ubicacion: c.ubicacion }));
+    setZonaAlert(evaluarZona(c.ubicacion));
+    setShowClienteSug(false);
+    showToast(`✅ Datos de ${c.nombre} cargados`);
+  }
+
+  function guardarCliente() {
+    if (!form.cliente.trim()) { showToast("⚠️ El cliente es requerido"); return; }
+    const existente = clientes.find(c => c.nombre.toLowerCase() === form.cliente.trim().toLowerCase());
+    const registro: Cliente = {
+      id: existente?.id || uid(),
+      nombre: form.cliente.trim(), proyecto: form.proyecto, email: form.email,
+      whatsapp: form.whatsapp, ubicacion: form.ubicacion, actualizado: today(),
+    };
+    const next = existente ? clientes.map(c => c.id === existente.id ? registro : c) : [registro, ...clientes];
+    setClientes(next);
+    persist("zClientes", next);
+    showToast(existente ? "✅ Cliente actualizado" : "✅ Cliente guardado");
   }
 
   return (
@@ -824,9 +856,34 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
       </Card>
 
       <Card>
-        <CardTitle>2. Datos del Cliente</CardTitle>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <CardTitle>2. Datos del Cliente</CardTitle>
+          <button type="button" onClick={guardarCliente}
+            className="text-xs font-semibold text-[#0ea5c8] hover:text-white flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[#0ea5c8]/10 whitespace-nowrap">
+            💾 Guardar Cliente
+          </button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input label="Cliente *" value={form.cliente} onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))} placeholder="Nombre completo" />
+          <div className="relative">
+            <Input label="Cliente *" value={form.cliente}
+              onChange={e => { setForm(f => ({ ...f, cliente: e.target.value })); setShowClienteSug(true); }}
+              onFocus={() => setShowClienteSug(true)}
+              onBlur={() => setTimeout(() => setShowClienteSug(false), 150)}
+              placeholder="Nombre completo" autoComplete="off" />
+            {showClienteSug && clienteSugerencias.length > 0 && (
+              <div className="absolute z-20 left-0 right-0 mt-1 bg-[#0b0e1a] border border-[#1a2235] rounded-lg shadow-xl max-h-52 overflow-y-auto">
+                {clienteSugerencias.map(c => (
+                  <button key={c.id} type="button" onMouseDown={() => elegirCliente(c)}
+                    className="w-full text-left px-3 py-2 text-sm text-[#e8e8f0] hover:bg-[#0ea5c8]/10 border-b border-[#1a2235] last:border-b-0">
+                    <div className="font-semibold text-white">{c.nombre}</div>
+                    {(c.proyecto || c.whatsapp) && (
+                      <div className="text-[10px] text-[#8090a8]">{[c.proyecto, c.whatsapp].filter(Boolean).join(" · ")}</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Input label="Proyecto" value={form.proyecto} onChange={e => setForm(f => ({ ...f, proyecto: e.target.value }))} placeholder="Descripción breve" />
           <Input label="Email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@ejemplo.com" />
           <Input label="WhatsApp" value={form.whatsapp} onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))} placeholder="+502 XXXX-XXXX" />
@@ -1899,7 +1956,12 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
   const [obs, setObs] = useState("");
   const [equipos, setEquipos] = useState<{ id: string; desc: string; marca: string; spec: string }[]>([]);
   const [patron, setPatron] = useState<number[]>([]);
-  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string })[]>(ls("zHojas", []));
+  const [saved, setSaved] = useState<HojaPDF[]>(() =>
+    (ls("zHojas", []) as HojaPDF[]).map(h => ({ ...h, equipos: h.equipos || [], patron: h.patron || [] }))
+  );
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewingHoja, setViewingHoja] = useState<HojaPDF | null>(null);
+  const [pdfHoja, setPdfHoja] = useState<HojaPDF | null>(null);
 
   function buscarCot(val: string) {
     setF(x => ({ ...x, orden: val }));
@@ -1912,24 +1974,49 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
   function updEquipo(id: string, k: string, v: string) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
   function togglePatron(n: number) { setPatron(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]); }
 
-  function guardar() {
-    if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
-    const hoja = { ...f, servicios, desc, obs, id: uid() };
-    const next = [hoja, ...saved];
-    setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
-    addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
+  function limpiar() {
+    setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" });
+    setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); setEditingId(null);
   }
 
-  function limpiar() { setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" }); setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); }
+  function guardar() {
+    if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
+    const hoja: HojaPDF = { ...f, servicios, desc, obs, equipos, patron, id: editingId || uid() };
+    const next = editingId ? saved.map(h => h.id === editingId ? hoja : h) : [hoja, ...saved];
+    setSaved(next); persist("zHojas", next);
+    showToast(editingId ? "✅ Hoja actualizada" : "✅ Hoja guardada");
+    addNotif({ tipo: "success", titulo: editingId ? "Hoja de trabajo actualizada" : "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
+    setPdfHoja(hoja);
+    setEditingId(null);
+  }
+
+  function editarHoja(h: HojaPDF) {
+    setF({ nombre: h.nombre, direccion: h.direccion, telefono: h.telefono, email: h.email, orden: h.orden, fecha: h.fecha, tecnico: h.tecnico });
+    setServicios(h.servicios); setDesc(h.desc); setObs(h.obs);
+    setEquipos((h.equipos || []).map(e => ({ id: uid(), ...e }))); setPatron(h.patron || []);
+    setEditingId(h.id);
+    showToast("✏️ Editando hoja — modifica y vuelve a guardar");
+  }
+
+  function eliminarHoja(id: string) {
+    const next = saved.filter(x => x.id !== id);
+    setSaved(next); persist("zHojas", next); showToast("🗑️ Eliminada");
+    if (editingId === id) limpiar();
+  }
+
+  function imprimirActual() {
+    if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
+    imprimirPdfHoja({ ...f, servicios, desc, obs, equipos, patron, id: editingId || uid() });
+  }
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div><h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2><p className="text-sm text-[#8090a8] mt-0.5">Genera hojas de servicio técnico</p></div>
-        <div className="flex gap-2">
-          <Btn onClick={guardar}>💾 Guardar</Btn>
+        <div><h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2><p className="text-sm text-[#8090a8] mt-0.5">Genera hojas de servicio técnico{editingId ? " — editando hoja existente" : ""}</p></div>
+        <div className="flex gap-2 flex-wrap">
+          <Btn onClick={guardar}>💾 {editingId ? "Actualizar" : "Guardar"}</Btn>
           <Btn variant="ghost" onClick={limpiar}><RefreshCw size={13} /> Limpiar</Btn>
-          <Btn variant="ghost" onClick={() => window.print()}>🖨️ Imprimir</Btn>
+          <Btn variant="ghost" onClick={imprimirActual}>🖨️ Imprimir / PDF</Btn>
         </div>
       </div>
 
@@ -2028,19 +2115,92 @@ function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
         <Card>
           <CardTitle>Hojas Guardadas</CardTitle>
           <div className="space-y-2">
-            {saved.slice(0, 5).map(h => (
-              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235]">
-                <div>
-                  <div className="text-sm font-semibold text-white">{h.nombre}</div>
+            {saved.slice(0, 10).map(h => (
+              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235] gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-white truncate">{h.nombre}</div>
                   <div className="text-xs text-[#8090a8]">{h.fecha} · {h.servicios.join(", ") || "Sin servicios"}</div>
                 </div>
-                <button onClick={() => { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); }}
-                  className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => setViewingHoja(h)} title="Ver"
+                    className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Eye size={13} /></button>
+                  <button onClick={() => editarHoja(h)} title="Editar"
+                    className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Edit2 size={13} /></button>
+                  <button onClick={() => descargarPdfHoja(h)} title="Descargar PDF"
+                    className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Download size={13} /></button>
+                  <button onClick={() => eliminarHoja(h.id)} title="Eliminar"
+                    className="p-1.5 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={13} /></button>
+                </div>
               </div>
             ))}
           </div>
         </Card>
       )}
+
+      <Modal open={!!viewingHoja} onClose={() => setViewingHoja(null)} title={viewingHoja ? `Hoja — ${viewingHoja.nombre}` : ""} width="max-w-2xl">
+        {viewingHoja && (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+              <div><span className="text-[#8090a8]">Cliente:</span> <span className="text-white font-medium">{viewingHoja.nombre}</span></div>
+              <div><span className="text-[#8090a8]">Fecha:</span> <span className="text-white">{viewingHoja.fecha}</span></div>
+              <div><span className="text-[#8090a8]">Teléfono:</span> <span className="text-white">{viewingHoja.telefono || "—"}</span></div>
+              <div><span className="text-[#8090a8]">Técnico:</span> <span className="text-white">{viewingHoja.tecnico || "—"}</span></div>
+              <div className="sm:col-span-2"><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{viewingHoja.direccion || "—"}</span></div>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Servicios</div>
+              <div className="text-[#c8d8e8]">{viewingHoja.servicios.join(", ") || "—"}</div>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Descripción del trabajo</div>
+              <div className="text-[#c8d8e8] whitespace-pre-wrap">{viewingHoja.desc || "—"}</div>
+            </div>
+            {viewingHoja.equipos && viewingHoja.equipos.length > 0 && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Equipos instalados</div>
+                <div className="space-y-1">
+                  {viewingHoja.equipos.map((e, i) => (
+                    <div key={i} className="text-[#c8d8e8] text-xs">{[e.desc, e.marca, e.spec].filter(Boolean).join(" · ") || "—"}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {viewingHoja.obs && (
+              <div>
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1">Observaciones</div>
+                <div className="text-[#c8d8e8] whitespace-pre-wrap">{viewingHoja.obs}</div>
+              </div>
+            )}
+            <div className="flex gap-2 justify-end pt-2">
+              <Btn onClick={() => descargarPdfHoja(viewingHoja)}><Download size={14} /> Descargar PDF</Btn>
+              <Btn variant="ghost" onClick={() => imprimirPdfHoja(viewingHoja)}>🖨️ Imprimir</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!pdfHoja} onClose={() => setPdfHoja(null)} title="Hoja de trabajo guardada" width="max-w-md">
+        {pdfHoja && (
+          <div className="text-center py-2">
+            <div className="w-14 h-14 rounded-full bg-[#0ea5c8]/10 flex items-center justify-center mx-auto mb-3">
+              <FileText size={26} className="text-[#0ea5c8]" />
+            </div>
+            <div className="text-white font-bold text-lg">{pdfHoja.nombre}</div>
+            <div className="text-sm text-[#8090a8] mt-1 mb-5">{pdfHoja.fecha}</div>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <Btn onClick={() => { descargarPdfHoja(pdfHoja); }}>
+                <Download size={14} /> Descargar PDF
+              </Btn>
+              <Btn variant="ghost" onClick={() => { imprimirPdfHoja(pdfHoja); }}>
+                🖨️ Imprimir
+              </Btn>
+            </div>
+            <button onClick={() => setPdfHoja(null)} className="text-xs text-[#8090a8] hover:text-white mt-4">
+              Cerrar
+            </button>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -3364,6 +3524,7 @@ export default function App() {
   const [pagos, setPagos] = useState<Pago[]>(() => ls("zPagos", []));
   const [mantenimientos, setMantenimientos] = useState<Mant[]>(() => ls("zMant", []));
   const [redes, setRedes] = useState<ServicioRed[]>(() => ls("zRedes", []));
+  const [clientes, setClientes] = useState<Cliente[]>(() => ls("zClientes", []));
   const [notifs, setNotifs] = useState<Notif[]>(() => ls("zNotifs", []));
   const [fbUrl, setFbUrlState] = useState(() => getFbUrl());
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "offline" | "error">("idle");
@@ -3434,6 +3595,7 @@ export default function App() {
           if (cloud.zPagos) { const p = (cloud.zPagos as Pago[]).map(x => ({ tipo: "cobrar" as const, ...x })); setPagos(p); lsSet("zPagos", p); }
           if (cloud.zMant) { setMantenimientos(cloud.zMant as Mant[]); lsSet("zMant", cloud.zMant); }
           if (cloud.zRedes) { setRedes(cloud.zRedes as ServicioRed[]); lsSet("zRedes", cloud.zRedes); }
+          if (cloud.zClientes) { setClientes(cloud.zClientes as Cliente[]); lsSet("zClientes", cloud.zClientes); }
           if (cloud.zNotifs) { setNotifs(cloud.zNotifs as Notif[]); lsSet("zNotifs", cloud.zNotifs); }
           if (cloud.zHojas) lsSet("zHojas", cloud.zHojas);
           if (Object.keys(cloud).length > 0) showToast("☁️ Datos sincronizados desde la nube");
@@ -3525,7 +3687,7 @@ export default function App() {
     if (!currentUser) return null;
     const props = { showToast, addNotif };
     switch (activeTab) {
-      case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} fbUrl={fbUrl} onFbConfigSaved={handleFbConfigSaved} onFbDisconnect={handleFbDisconnect} {...props} />;
+      case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} clientes={clientes} setClientes={setClientes} fbUrl={fbUrl} onFbConfigSaved={handleFbConfigSaved} onFbDisconnect={handleFbDisconnect} {...props} />;
       case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} catalog={catalog} {...props} />;
       case "catalogo": return <CatalogoPage catalog={catalog} setCatalog={setCatalog} fbUrl={fbUrl} {...props} />;
       case "ventas": return <VentasPage ventas={ventas} setVentas={setVentas} {...props} />;
