@@ -131,6 +131,7 @@ const fmt = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3}
 const ls = <T,>(k: string, def: T): T => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : def; } catch { return def; } };
 const lsSet = (k: string, v: unknown) => localStorage.setItem(k, JSON.stringify(v));
 const today = () => new Date().toISOString().split("T")[0];
+const ordenarCatalogo = (arr: Producto[]) => [...arr].sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 const diasHasta = (fecha: string) => Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000);
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -932,7 +933,7 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, clientes, setCl
                 className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0"
               >
                 <option value="">— Seleccionar producto del catálogo —</option>
-                {catalog.map(p => (
+                {ordenarCatalogo(catalog).map(p => (
                   <option key={p.id} value={p.id}>{p.nombre}{p.marca ? ` · ${p.marca}` : ""}</option>
                 ))}
               </select>
@@ -1250,7 +1251,7 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, ad
                       }}
                       className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0">
                       <option value="">— Seleccionar producto del catálogo —</option>
-                      {catalog.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.marca ? ` · ${p.marca}` : ""}</option>)}
+                      {ordenarCatalogo(catalog).map(p => <option key={p.id} value={p.id}>{p.nombre}{p.marca ? ` · ${p.marca}` : ""}</option>)}
                     </select>
                     <input value={item.nombre} onChange={e => editUpdItem(item.id, "nombre", e.target.value)} placeholder="Nombre del producto/servicio"
                       className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] w-full min-w-0" />
@@ -1346,10 +1347,10 @@ function CatalogoPage({ catalog, setCatalog, showToast, addNotif, fbUrl }: {
   const [form, setForm] = useState<Partial<Producto>>({});
   const [marcaOtro, setMarcaOtro] = useState(false);
 
-  const filtered = catalog.filter(p =>
+  const filtered = ordenarCatalogo(catalog.filter(p =>
     (!search || (p.nombre + p.desc + p.cat + p.marca).toLowerCase().includes(search.toLowerCase())) &&
     (!catFilter || p.cat === catFilter)
-  );
+  ));
 
   function openModal(p?: Producto) {
     setEditing(p || null);
