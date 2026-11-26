@@ -19,7 +19,7 @@ type HistorialRedPDF = {
   firma?: string; firmante?: string;
 };
 export type ServicioRedPDF = {
-  id: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
+  id: string; ot?: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
   clienteEmail?: string; clienteDireccion?: string; clienteObservaciones?: string;
   tipoServicio: string; proveedor: string; plan: string;
   estado: "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
@@ -124,11 +124,13 @@ async function getLogoDataUrl(): Promise<string | null> {
   }
 }
 
+const otDe = (s: ServicioRedPDF) => (s.ot ? `OT-${s.ot}` : s.codigoCliente);
+
 function nombreArchivo(s: ServicioRedPDF) {
   const clienteLimpio = (s.clienteNombre || "Cliente")
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9\s-]/g, "").trim().replace(/\s+/g, "_");
-  return `${s.codigoCliente}_${clienteLimpio}_${s.tipoServicio.replace(/\s+/g, "_")}.pdf`;
+  return `${otDe(s)}_${clienteLimpio}_${s.tipoServicio.replace(/\s+/g, "_")}.pdf`;
 }
 
 async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
@@ -168,7 +170,7 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
   doc.setFontSize(8.5);
   doc.setTextColor(90, 100, 120);
   doc.text(`Generado: ${new Date().toLocaleDateString("es-GT")}`, pageW - marginX, y + 14, { align: "right" });
-  doc.text(`Código: ${s.codigoCliente}`, pageW - marginX, y + 26, { align: "right" });
+  doc.text(`Orden de trabajo: ${otDe(s)}`, pageW - marginX, y + 26, { align: "right" });
 
   y += 46;
   doc.setDrawColor(220, 224, 232);
@@ -308,7 +310,7 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(15, 23, 42);
     doc.text("FOTOS DEL PROYECTO", marginX, y);
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 100, 120);
-    doc.text(s.codigoCliente, pageW - marginX, y, { align: "right" });
+    doc.text(otDe(s), pageW - marginX, y, { align: "right" });
     y += 10;
     doc.setDrawColor(220, 224, 232);
     doc.line(marginX, y, pageW - marginX, y);
@@ -341,7 +343,12 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
         const ox = fx + (THUMB - dw) / 2, oy = y + (THUMB - dh) / 2;
         doc.setFillColor(240, 242, 246);
         doc.roundedRect(fx, y, THUMB, THUMB, 5, 5, "F");
-        try { doc.addImage(f.data, "JPEG", ox, oy, dw, dh); } catch { /* formato no soportado, se omite */ }
+        if (f.data) {
+          try { doc.addImage(f.data, /^data:image\/png/.test(f.data) ? "PNG" : "JPEG", ox, oy, dw, dh); } catch { /* formato no soportado, se omite */ }
+        } else {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(150, 156, 168);
+          doc.text("Foto no disponible", fx + THUMB / 2, y + THUMB / 2, { align: "center" });
+        }
         doc.setDrawColor(220, 224, 232);
         doc.roundedRect(fx, y, THUMB, THUMB, 5, 5, "S");
         col++;
@@ -385,7 +392,7 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(150, 156, 168);
     doc.text("Zento Data · Seguridad Electrónica y Soporte Técnico · Guatemala", pageW / 2, pageH - 22, { align: "center" });
     doc.text(`Página ${p} de ${total}`, pageW - marginX, pageH - 22, { align: "right" });
-    doc.text(s.codigoCliente, marginX, pageH - 22);
+    doc.text(otDe(s), marginX, pageH - 22);
   }
 
   return doc;

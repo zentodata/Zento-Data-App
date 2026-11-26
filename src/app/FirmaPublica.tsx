@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { SignaturePad } from "@/app/SignaturePad";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 
-type Info = { cliente: string; codigo: string; descripcion: string; equipos: string[]; fotos?: string[]; firmado: boolean; expirado: boolean };
+type Info = { cliente: string; codigo: string; ot?: string; descripcion: string; equipos: string[]; fotos?: string[]; firmado: boolean; expirado: boolean };
 
 async function post<T>(body: unknown): Promise<{ ok: boolean; status: number; data: T & { error?: string } }> {
   const r = await fetch("/api/firma", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -71,7 +71,7 @@ export default function FirmaPublica({ token }: { token: string }) {
         <div className={`${caja} space-y-4`}>
           <div>
             <h1 className="text-lg font-bold text-white">Hola, {info.cliente}</h1>
-            <p className="text-sm text-[#8090a8]">Revisa el trabajo realizado y firma tu conformidad. Servicio <span className="font-mono text-[#0ea5c8]">{info.codigo}</span></p>
+            <p className="text-sm text-[#8090a8]">Revisa el trabajo realizado y firma tu conformidad. Orden de trabajo <span className="font-mono text-[#0ea5c8]">{info.ot ? `OT-${info.ot}` : "—"}</span></p>
           </div>
 
           {info.equipos.length > 0 && (

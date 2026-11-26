@@ -61,6 +61,12 @@ export async function urlDe(key: string): Promise<string> {
 /** Devuelve el archivo como data URL (para incrustarlo en PDFs) */
 export async function dataUrlDe(a: ArchivoR2): Promise<string> {
   if (!a.key) return a.data || "";
+  // 1) A través del servidor (no depende de CORS)
+  try {
+    const { dataUrl } = await api<{ dataUrl: string }>({ action: "data", key: a.key });
+    if (dataUrl) return dataUrl;
+  } catch { /* se intenta directo */ }
+  // 2) Directo desde R2 (requiere CORS con GET)
   try {
     const blob = await (await fetch(await urlDe(a.key))).blob();
     return await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = rej; fr.readAsDataURL(blob); });
@@ -84,7 +90,7 @@ async function apiFirma<T>(body: unknown): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export const crearSolicitudFirma = (datos: { codigo: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[]; fotos?: string[] }) =>
+export const crearSolicitudFirma = (datos: { codigo: string; ot?: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[]; fotos?: string[] }) =>
   apiFirma<{ token: string; expiraEn: string }>({ action: "crear", ...datos });
 
 export type EstadoFirma = { firmado: boolean; firmaKey?: string; firmante?: string; firmadoEn?: string; expirado?: boolean };

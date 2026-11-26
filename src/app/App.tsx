@@ -92,7 +92,8 @@ type HistorialRed = {
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
-  id: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
+  id: string;
+  ot?: string; // número de orden de trabajo (5 dígitos) que se muestra en PDF y firma codigoCliente: string; clienteNombre: string; clienteTelefono: string;
   clienteEmail?: string; clienteDireccion?: string; clienteObservaciones?: string;
   tipoServicio: string; proveedor: string; plan: string;
   estado: EstadoRed;
@@ -128,7 +129,7 @@ const fixDupCots = (list: Cotizacion[]): Cotizacion[] => {
 };
 // Firebase elimina arrays vacíos y puede convertir arrays en objetos: normaliza los servicios de Redes
 const arr = <T,>(v: unknown): T[] => Array.isArray(v) ? v as T[] : (v && typeof v === "object" ? Object.values(v as object) as T[] : []);
-const normRedes = (list: unknown): ServicioRed[] => arr<ServicioRed>(list).filter(Boolean).map(r => ({
+const normRedes = (list: unknown): ServicioRed[] => asignarOT(arr<ServicioRed>(list).filter(Boolean)).map(r => ({
   ...r,
   id: r.id || uid(),
   codigoCliente: r.codigoCliente || "",
@@ -155,6 +156,24 @@ class PageBoundary extends Component<{ children: ReactNode }, { err: Error | nul
     return this.props.children;
   }
 }
+// Orden de trabajo: 5 dígitos aleatorios, sin repetir
+const genOT = (usados: Set<string>) => {
+  for (let i = 0; i < 200; i++) { const n = String(10000 + Math.floor(Math.random() * 90000)); if (!usados.has(n)) return n; }
+  return String(10000 + Math.floor(Math.random() * 90000));
+};
+// Servicios antiguos sin OT: se les asigna una estable (derivada de su id) y sin repetir
+const asignarOT = (list: ServicioRed[]): ServicioRed[] => {
+  const usados = new Set(list.map(r => r.ot).filter((x): x is string => !!x));
+  return list.map(r => {
+    if (r.ot) return r;
+    let h = 0; for (const c of r.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    let n = 10000 + (h % 90000);
+    while (usados.has(String(n))) n = n >= 99999 ? 10000 : n + 1;
+    usados.add(String(n));
+    return { ...r, ot: String(n) };
+  });
+};
+const otLabel = (r: { ot?: string; codigoCliente: string }) => (r.ot ? `OT-${r.ot}` : r.codigoCliente);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const fmt = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const ls = <T,>(k: string, def: T): T => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : def; } catch { return def; } };
@@ -383,8 +402,9 @@ function Textarea({ label, ...props }: React.TextareaHTMLAttributes<HTMLTextArea
   );
 }
 
-function Modal({ open, onClose, title, children, width = "max-w-lg" }: {
+function Modal({ open, onClose, title, children, width = "max-w-lg", persistent = false }: {
   open: boolean; onClose: () => void; title: string; children: React.ReactNode; width?: string;
+  persistent?: boolean; // true: tocar fuera del cuadro NO cierra (solo la X o Cancelar)
 }) {
   return (
     <AnimatePresence>
@@ -392,7 +412,7 @@ function Modal({ open, onClose, title, children, width = "max-w-lg" }: {
         <motion.div
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          onClick={e => e.target === e.currentTarget && onClose()}
+          onClick={e => !persistent && e.target === e.currentTarget && onClose()}
         >
           <motion.div
             className={`bg-[#0b0e1a] border border-[#1a2235] rounded-2xl w-full ${width} max-h-[90vh] overflow-y-auto`}
@@ -2292,7 +2312,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
 
   const filtered = redes.filter(r =>
     (filtro === "todos" || r.estado === filtro) &&
-    (!search || (r.clienteNombre + r.codigoCliente + r.tipoServicio + r.equipos.map(e => e.modelo).join(" ")).toLowerCase().includes(search.toLowerCase()))
+    (!search || (r.clienteNombre + r.codigoCliente + (r.ot || "") + r.tipoServicio + r.equipos.map(e => e.modelo).join(" ")).toLowerCase().includes(search.toLowerCase()))
   );
 
   const activos = redes.filter(r => r.estado === "activo").length;
@@ -2381,7 +2401,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     setCreandoEnlace(true);
     try {
       const { token, expiraEn } = await crearSolicitudFirma({
-        codigo: sv.codigoCliente, servicioId: sv.id, histId: h.id, cliente: sv.clienteNombre,
+        codigo: sv.codigoCliente, ot: sv.ot, servicioId: sv.id, histId: h.id, cliente: sv.clienteNombre,
         descripcion: h.descripcion, equipos: resumenEquipos(sv),
         fotos: (h.fotos || []).map(f => f.key).filter((k): k is string => !!k),
       });
@@ -2514,6 +2534,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     }
     const nuevo: ServicioRed = {
       id: uid(),
+      ot: genOT(new Set(redes.map(r => r.ot).filter((x): x is string => !!x))),
       codigoCliente: codigo,
       clienteNombre: form.clienteNombre,
       clienteTelefono: form.clienteTelefono,
@@ -2849,7 +2870,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       )}
 
       {/* ── Modal: Nueva instalación ── */}
-      <Modal open={modal} onClose={() => setModal(false)} title="Nueva Instalación de Red" width="max-w-xl">
+      <Modal open={modal} onClose={() => setModal(false)} title="Nueva Instalación de Red" width="max-w-xl" persistent>
         <div className="space-y-4">
           <div className="relative">
             <Input label="Cliente *" value={form.clienteNombre}
@@ -3045,7 +3066,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       </Modal>
 
       {/* ── Modal: Ficha del servicio ── */}
-      <Modal open={!!detalle} onClose={() => setDetalle(null)} title={detalle ? `${detalle.codigoCliente} — ${detalle.tipoServicio}` : ""} width="max-w-lg">
+      <Modal open={!!detalle} onClose={() => setDetalle(null)} title={detalle ? `${otLabel(detalle)} — ${detalle.tipoServicio}` : ""} width="max-w-lg">
         {detalle && (
           <div className="space-y-4 text-sm">
             <div className="flex items-center justify-between">
@@ -3067,7 +3088,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
               <div><span className="text-[#8090a8]">Proveedor:</span> <span className="text-white">{detalle.proveedor || "-"}</span></div>
               <div><span className="text-[#8090a8]">Plan:</span> <span className="text-white">{detalle.plan || "-"}</span></div>
               <div><span className="text-[#8090a8]">Instalación:</span> <span className="text-white">{detalle.fechaInstalacion}</span></div>
-              <div><span className="text-[#8090a8]">Código:</span> <span className="text-[#0ea5c8] font-mono">{detalle.codigoCliente}</span></div>
+              <div><span className="text-[#8090a8]">Orden de trabajo:</span> <span className="text-[#0ea5c8] font-mono">{otLabel(detalle)}</span></div>
+              <div><span className="text-[#8090a8]">Código cliente:</span> <span className="text-white font-mono">{detalle.codigoCliente}</span></div>
               <div><span className="text-[#8090a8]">Último mant.:</span> <span className="text-white">{detalle.fechaUltimoMant || "-"}</span></div>
               <div>
                 <span className="text-[#8090a8]">Próximo mant.:</span>{" "}
@@ -3169,7 +3191,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       </Modal>
 
       {/* ── Modal: Nueva modificación ── */}
-      <Modal open={modModal} onClose={() => { setModModal(false); setEditingHistId(null); }} title={detalle ? `${editingHistId ? "Editar registro" : "Nueva modificación"} — ${detalle.codigoCliente}` : ""} width="max-w-xl">
+      <Modal open={modModal} onClose={() => { setModModal(false); setEditingHistId(null); }} title={detalle ? `${editingHistId ? "Editar registro" : "Nueva modificación"} — ${detalle.codigoCliente}` : ""} width="max-w-xl" persistent>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Select label="Tipo *" value={modForm.tipo} onChange={e => setModForm(f => ({ ...f, tipo: e.target.value as HistorialRed["tipo"] }))}>
