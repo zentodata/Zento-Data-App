@@ -17,7 +17,8 @@ import {
   getUserProfile, setUserProfile, fetchAllUserProfiles, publishHubSummary,
 } from "@/app/cloudSync";
 import { buildHubSummary } from "@/app/hubSummary";
-import { subirArchivo, subirDataUrl, urlDe, dataUrlDe } from "@/app/r2";
+import { SignaturePad } from "@/app/SignaturePad";
+import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -86,6 +87,7 @@ type HistorialRed = {
   documentos?: ArchivoRed[];
   resultado?: string;
   equiposRevisados?: string[];
+  firmaToken?: string; firmaTokenExp?: string; // enlace de firma remota pendiente
   firma?: string; firmaKey?: string; firmante?: string; // acta de entrega firmada (imagen PNG en base64)
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
@@ -2242,70 +2244,6 @@ async function hidratarServicio(sv: ServicioRed): Promise<ServicioRed> {
 }
 const carpetaMes = () => `redes/adjuntos/${today().slice(0, 7)}`;
 
-// Lienzo de firma: funciona con dedo, lápiz táctil y mouse (Pointer Events)
-function SignaturePad({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const drawing = useRef(false);
-  const last = useRef<{ x: number; y: number } | null>(null);
-  const [vacio, setVacio] = useState(!value);
-
-  function blank() {
-    const c = ref.current; if (!c) return;
-    const ctx = c.getContext("2d")!;
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height); ctx.restore();
-  }
-  useEffect(() => {
-    const c = ref.current; if (!c) return;
-    const dpr = window.devicePixelRatio || 1;
-    c.width = c.offsetWidth * dpr; c.height = c.offsetHeight * dpr;
-    const ctx = c.getContext("2d")!;
-    ctx.scale(dpr, dpr); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0b1220";
-    blank();
-  }, []);
-
-  const pos = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const c = ref.current!; const r = c.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (c.offsetWidth / r.width), y: (e.clientY - r.top) * (c.offsetHeight / r.height) };
-  };
-  function down(e: React.PointerEvent<HTMLCanvasElement>) {
-    e.preventDefault(); ref.current!.setPointerCapture(e.pointerId);
-    drawing.current = true; last.current = pos(e);
-    const ctx = ref.current!.getContext("2d")!; const p = last.current;
-    ctx.fillStyle = "#0b1220"; ctx.beginPath(); ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2); ctx.fill();
-  }
-  function move(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current || !last.current) return;
-    e.preventDefault();
-    const ctx = ref.current!.getContext("2d")!; const p = pos(e);
-    ctx.lineWidth = e.pointerType === "pen" && e.pressure > 0 ? 1.2 + e.pressure * 2.4 : 2.4;
-    ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-    last.current = p;
-    if (vacio) setVacio(false);
-  }
-  function up() {
-    if (!drawing.current) return;
-    drawing.current = false; last.current = null;
-    setVacio(false);
-    onChange(ref.current!.toDataURL("image/png"));
-  }
-  function limpiar() { blank(); setVacio(true); onChange(null); }
-
-  return (
-    <div>
-      <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-[#1a2235] bg-white" style={{ height: 170 }}>
-        <canvas ref={ref} className="w-full h-full block cursor-crosshair" style={{ touchAction: "none" }}
-          onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} />
-        {vacio && <span className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm pointer-events-none select-none">Firme aquí con el dedo o lápiz</span>}
-        <div className="absolute left-4 right-4 bottom-7 border-b border-slate-300 pointer-events-none" />
-      </div>
-      <div className="flex items-center justify-between mt-1.5">
-        <span className={`text-[11px] font-semibold ${vacio ? "text-[#5a6a80]" : "text-emerald-400"}`}>{vacio ? "Sin firma" : "✓ Firmado"}</span>
-        <button type="button" onClick={limpiar} className="text-[11px] text-[#0ea5c8] hover:underline">Limpiar firma</button>
-      </div>
-    </div>
-  );
-}
-
 // ─── PAGE: REDES (Parte 1 — dashboard + tabla, formularios en la siguiente parte) ──
 
 function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToast, addNotif }: {
@@ -2429,6 +2367,71 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     return `ZD-${String(next).padStart(4, "0")}`;
   }
 
+  // ── Firma remota por enlace ──
+  const [enlaceFirma, setEnlaceFirma] = useState<{ url: string; cliente: string; telefono: string } | null>(null);
+  const [creandoEnlace, setCreandoEnlace] = useState(false);
+
+  const resumenEquipos = (sv: ServicioRed) => sv.equipos.map(e =>
+    `${(e.cantidad || 1) > 1 ? e.cantidad + "x " : ""}${e.tipoEquipo && e.tipoEquipo !== "Otro" ? e.tipoEquipo + " " : ""}${e.marca || ""} ${e.modelo}`.replace(/\s+/g, " ").trim());
+
+  // Crea el enlace y lo guarda en la entrada del historial. Devuelve la lista actualizada.
+  async function crearEnlaceFirma(base: ServicioRed[], svId: string, histId: string): Promise<ServicioRed[]> {
+    const sv = base.find(r => r.id === svId); const h = sv?.historial.find(x => x.id === histId);
+    if (!sv || !h) return base;
+    setCreandoEnlace(true);
+    try {
+      const { token, expiraEn } = await crearSolicitudFirma({
+        codigo: sv.codigoCliente, servicioId: sv.id, histId: h.id, cliente: sv.clienteNombre,
+        descripcion: h.descripcion, equipos: resumenEquipos(sv),
+      });
+      const next = base.map(r => r.id !== svId ? r : { ...r, historial: r.historial.map(x => x.id === histId ? { ...x, firmaToken: token, firmaTokenExp: expiraEn } : x) });
+      setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+      setDetalle(d => d ? next.find(r => r.id === d.id) || d : d);
+      setEnlaceFirma({ url: urlEnlaceFirma(token), cliente: sv.clienteNombre, telefono: sv.clienteTelefono });
+      return next;
+    } catch {
+      showToast("⚠️ No se pudo crear el enlace de firma. Revisa tu conexión.");
+      return base;
+    } finally { setCreandoEnlace(false); }
+  }
+
+  function mensajeWhatsApp(e: { url: string; cliente: string; telefono: string }) {
+    let tel = (e.telefono || "").replace(/\D/g, "");
+    if (tel.length === 8) tel = "502" + tel;
+    const txt = `Hola ${e.cliente}, soy de Zento Data. Por favor firma el acta de entrega de tu servicio en este enlace: ${e.url}`;
+    return `https://wa.me/${tel}?text=${encodeURIComponent(txt)}`;
+  }
+
+  // Revisa si los clientes ya firmaron y pasa la firma al ticket automáticamente
+  useEffect(() => {
+    const pendientes = redes.flatMap(r => r.historial.filter(h => h.firmaToken && !h.firmaKey && !h.firma).map(h => h.firmaToken as string));
+    if (pendientes.length === 0) return;
+    let activo = true;
+    const revisar = async () => {
+      try {
+        const { estados } = await estadoFirmas(pendientes);
+        if (!activo || !Object.values(estados).some(e => e.firmado && e.firmaKey)) return;
+        const firmados: string[] = [];
+        const next = redes.map(r => ({
+          ...r,
+          historial: r.historial.map(h => {
+            const e = h.firmaToken ? estados[h.firmaToken] : undefined;
+            if (!e || !e.firmado || !e.firmaKey || h.firmaKey) return h;
+            firmados.push(r.clienteNombre);
+            return { ...h, firmaKey: e.firmaKey, firmante: e.firmante || r.clienteNombre, firmaToken: undefined, firmaTokenExp: undefined };
+          }),
+        }));
+        setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+        setDetalle(d => d ? next.find(r => r.id === d.id) || d : d);
+        showToast(`✅ ${firmados[0]} firmó el acta de entrega`);
+        addNotif({ tipo: "success", titulo: "Acta firmada por el cliente", mensaje: firmados.join(", "), modulo: "redes" });
+      } catch { /* sin conexión: se reintenta */ }
+    };
+    revisar();
+    const t = setInterval(revisar, 20000);
+    return () => { activo = false; clearInterval(t); };
+  }, [redes]);
+
   // ── Migración de adjuntos antiguos (base64 en Firebase/localStorage) a Cloudflare R2 ──
   const esB64 = (a?: { data?: string; key?: string }) => !!a && !a.key && !!a.data && a.data.startsWith("data:");
   const porMigrar = redes.reduce((n, r) => n + r.historial.reduce((m, h) =>
@@ -2493,7 +2496,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   function delEquipo(id: string) { setEquipos(equipos.filter(e => e.id !== id)); }
   function updEquipo(id: string, k: keyof EquipoRed, v: string | number | undefined) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
 
-  async function guardar() {
+  async function guardar(pedirEnlace = false) {
     if (!form.clienteNombre) { showToast("⚠️ El cliente es requerido"); return; }
     if (!form.tipoServicio) { showToast("⚠️ El tipo de servicio es requerido"); return; }
     const codigo = nextCodigoCliente(form.clienteNombre);
@@ -2528,8 +2531,9 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       fechaInstalacion: form.fechaInstalacion,
       ultimaModificacion: ahora,
     };
-    const next = [nuevo, ...redes];
+    let next = [nuevo, ...redes];
     setRedes(next); persist("zRedes", next); setModal(false);
+    if (pedirEnlace && !firmaInst) next = await crearEnlaceFirma(next, nuevo.id, nuevo.historial[0].id);
     addNotif({ tipo: "success", titulo: "Nueva instalación de red", mensaje: `${codigo} — ${nuevo.clienteNombre} (${nuevo.tipoServicio})`, modulo: "redes" });
     showToast("✅ Instalación registrada");
   }
@@ -3011,14 +3015,32 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1.5">Acta de entrega — firma del cliente</label>
             <Input placeholder={`Nombre de quien recibe (por defecto: ${form.clienteNombre || "el cliente"})`} value={firmanteInst} onChange={e => setFirmanteInst(e.target.value)} className="mb-2" />
             <SignaturePad value={firmaInst} onChange={setFirmaInst} />
-            <p className="text-[10px] text-[#5a6a80] mt-1">Las fotos y el acta firmada quedan adjuntas a este ticket y salen en el PDF.</p>
+            <p className="text-[10px] text-[#5a6a80] mt-1">Las fotos y el acta firmada quedan adjuntas a este ticket y salen en el PDF. ¿El cliente no está presente? Usa «Guardar y pedir firma por enlace».</p>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
-            <Btn onClick={guardar}>💾 Guardar Instalación</Btn>
+            {!firmaInst && <Btn variant="ghost" onClick={() => guardar(true)}>📲 Guardar y pedir firma por enlace</Btn>}
+            <Btn onClick={() => guardar()}>💾 Guardar Instalación</Btn>
           </div>
         </div>
+      </Modal>
+
+      {/* ── Modal: Enlace de firma remota ── */}
+      <Modal open={!!enlaceFirma} onClose={() => setEnlaceFirma(null)} title="Enlace de firma del cliente" width="max-w-md">
+        {enlaceFirma && (
+          <div className="space-y-3 text-sm">
+            <p className="text-[#c8d8e8]">Envía este enlace a <b>{enlaceFirma.cliente}</b>. Al firmar desde su celular, la firma se agrega sola al ticket y podrás descargar el PDF. Válido por 7 días y de un solo uso.</p>
+            <input readOnly value={enlaceFirma.url} onFocus={e => e.currentTarget.select()}
+              className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-xs text-[#e8e8f0] font-mono" />
+            <div className="flex flex-wrap gap-2">
+              <Btn onClick={async () => { try { await navigator.clipboard.writeText(enlaceFirma.url); showToast("📋 Enlace copiado"); } catch { showToast("Selecciona el enlace y cópialo"); } }}>📋 Copiar enlace</Btn>
+              <a href={mensajeWhatsApp(enlaceFirma)} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-500">💬 Enviar por WhatsApp</a>
+            </div>
+            <p className="text-[11px] text-[#5a6a80]">Mantén abierta la sección Redes: se revisa cada 20 segundos si el cliente ya firmó (también al volver a entrar).</p>
+          </div>
+        )}
       </Modal>
 
       {/* ── Modal: Ficha del servicio ── */}
@@ -3105,6 +3127,20 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                           <ArchivoImg a={f} alt={f.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
                         </ArchivoLink>
                       ))}
+                    </div>
+                  )}
+                  {!h.firma && !h.firmaKey && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {h.firmaToken && h.firmaTokenExp && new Date(h.firmaTokenExp).getTime() > Date.now() ? (
+                        <>
+                          <span className="text-amber-400">⏳ Esperando la firma del cliente</span>
+                          <button onClick={() => setEnlaceFirma({ url: urlEnlaceFirma(h.firmaToken as string), cliente: detalle.clienteNombre, telefono: detalle.clienteTelefono })} className="text-[#0ea5c8] hover:underline">Ver enlace</button>
+                        </>
+                      ) : (
+                        <button disabled={creandoEnlace} onClick={() => crearEnlaceFirma(redes, detalle.id, h.id)} className="text-[#0ea5c8] hover:underline disabled:opacity-50">
+                          {creandoEnlace ? "Creando enlace..." : h.firmaToken ? "📲 Enlace vencido — crear uno nuevo" : "📲 Pedir firma por enlace"}
+                        </button>
+                      )}
                     </div>
                   )}
                   {(h.firma || h.firmaKey) && (

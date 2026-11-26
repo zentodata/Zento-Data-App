@@ -70,3 +70,24 @@ export async function dataUrlDe(a: ArchivoR2): Promise<string> {
 export async function borrarArchivo(key: string): Promise<void> {
   try { await api({ action: "delete", key }); } catch { /* best-effort */ }
 }
+
+// ── Firma remota del cliente (enlace) ──
+async function apiFirma<T>(body: unknown): Promise<T> {
+  const user = getCurrentAuthUser();
+  if (!user) throw new Error("Sin sesión");
+  const r = await fetch("/api/firma", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`Firma ${r.status}`);
+  return r.json() as Promise<T>;
+}
+
+export const crearSolicitudFirma = (datos: { codigo: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[] }) =>
+  apiFirma<{ token: string; expiraEn: string }>({ action: "crear", ...datos });
+
+export type EstadoFirma = { firmado: boolean; firmaKey?: string; firmante?: string; firmadoEn?: string; expirado?: boolean };
+export const estadoFirmas = (tokens: string[]) => apiFirma<{ estados: Record<string, EstadoFirma> }>({ action: "estado", tokens });
+
+export const urlEnlaceFirma = (token: string) => `${window.location.origin}/?firmar=${token}`;
