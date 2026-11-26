@@ -18,7 +18,7 @@ import {
 } from "@/app/cloudSync";
 import { buildHubSummary } from "@/app/hubSummary";
 import { SignaturePad } from "@/app/SignaturePad";
-import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma } from "@/app/r2";
+import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, borrarArchivo, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -74,6 +74,7 @@ type EquipoRed = {
   garantia?: string;
   categoria?: "redes" | "camaras"; tipoEquipo?: string; cantidad?: number; marcaOtra?: string;
 };
+type UbicacionRed = { lat: number; lng: number; precision?: number; fecha: string }; // GPS al crear el reporte
 type ArchivoRed = { id: string; nombre: string; data: string; key?: string }; // key = ruta en Cloudflare R2 (data queda vacío)
 type HistorialRed = {
   id: string; fecha: string;
@@ -87,12 +88,14 @@ type HistorialRed = {
   documentos?: ArchivoRed[];
   resultado?: string;
   equiposRevisados?: string[];
+  ubicacion?: UbicacionRed;
   firmaToken?: string; firmaTokenExp?: string; // enlace de firma remota pendiente
   firma?: string; firmaKey?: string; firmante?: string; // acta de entrega firmada (imagen PNG en base64)
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
   id: string;
+  ubicacion?: UbicacionRed; // ubicación donde se creó la instalación
   ot?: string; // número de orden de trabajo (5 dígitos) que se muestra en PDF y firma codigoCliente: string; clienteNombre: string; clienteTelefono: string;
   clienteEmail?: string; clienteDireccion?: string; clienteObservaciones?: string;
   tipoServicio: string; proveedor: string; plan: string;
@@ -173,6 +176,16 @@ const asignarOT = (list: ServicioRed[]): ServicioRed[] => {
     return { ...r, ot: String(n) };
   });
 };
+// Captura la ubicación del dispositivo (pide permiso al navegador); null si no se pudo
+const capturarUbicacion = (timeout = 10000): Promise<UbicacionRed | null> => new Promise(resolve => {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
+  navigator.geolocation.getCurrentPosition(
+    p => resolve({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), precision: Math.round(p.coords.accuracy), fecha: new Date().toISOString() }),
+    () => resolve(null),
+    { enableHighAccuracy: true, timeout, maximumAge: 60000 },
+  );
+});
+const mapaUrl = (u: UbicacionRed) => `https://www.google.com/maps?q=${u.lat},${u.lng}`;
 const otLabel = (r: { ot?: string; codigoCliente: string }) => (r.ot ? `OT-${r.ot}` : r.codigoCliente);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const fmt = (n: number) => "Q " + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -1516,6 +1529,13 @@ function CatalogoPage({ catalog, setCatalog, showToast, addNotif, fbUrl }: {
               Sin costo
             </label>
           </div>
+          <div className="flex items-center justify-between gap-2 text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
+            <span className={ubicInst ? "text-emerald-400" : "text-[#8090a8]"}>
+              {ubicBuscando ? "📍 Obteniendo ubicación..." : ubicInst ? `📍 Ubicación capturada${ubicInst.precision ? ` (±${ubicInst.precision} m)` : ""}` : "📍 Sin ubicación"}
+            </span>
+            <button type="button" onClick={refrescarUbicacion} disabled={ubicBuscando} className="text-[#0ea5c8] hover:underline disabled:opacity-50">Actualizar</button>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
             <Btn onClick={save}>💾 Guardar</Btn>
@@ -2291,6 +2311,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const [equipos, setEquipos] = useState<EquipoRed[]>(() => [emptyEquipo()]);
   const [clienteSugerencias, setClienteSugerencias] = useState(false);
   const [descManual, setDescManual] = useState(false);
+  const [ubicInst, setUbicInst] = useState<UbicacionRed | null>(null);
+  const [ubicBuscando, setUbicBuscando] = useState(false);
   const [fotosInst, setFotosInst] = useState<ArchivoRed[]>([]);
   const [firmaInst, setFirmaInst] = useState<string | null>(null);
   const [firmanteInst, setFirmanteInst] = useState("");
@@ -2385,6 +2407,17 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     const nums = redes.map(r => parseInt(r.codigoCliente.replace("ZD-", ""), 10)).filter(n => !isNaN(n));
     const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
     return `ZD-${String(next).padStart(4, "0")}`;
+  }
+
+  async function eliminarServicio(sv: ServicioRed) {
+    if (!confirm(`¿Eliminar ${otLabel(sv)} — ${sv.clienteNombre}?\n\nSe borrarán también su historial, fotos y firmas. Esta acción no se puede deshacer.`)) return;
+    const keys = sv.historial.flatMap(h => [...(h.fotos || []), ...(h.documentos || [])].map(a => a.key).concat(h.firmaKey)).filter((k): k is string => !!k);
+    const next = redes.filter(r => r.id !== sv.id);
+    setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+    setDetalle(null);
+    showToast("🗑️ Servicio eliminado");
+    addNotif({ tipo: "warning", titulo: "Servicio eliminado", mensaje: `${otLabel(sv)} — ${sv.clienteNombre}`, modulo: "redes" });
+    await Promise.all(keys.map(k => borrarArchivo(k))); // limpia los archivos en R2 (best-effort)
   }
 
   // ── Firma remota por enlace ──
@@ -2504,6 +2537,12 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     setTipoOtro(false);
     setDescManual(false); setFotosInst([]); setFirmaInst(null); setFirmanteInst("");
     setModal(true);
+    refrescarUbicacion();
+  }
+
+  function refrescarUbicacion() {
+    setUbicBuscando(true);
+    capturarUbicacion().then(u => { setUbicInst(u); setUbicBuscando(false); if (!u) showToast("📍 No se pudo obtener la ubicación. Activa el permiso de ubicación del navegador."); });
   }
 
   // La descripción se arma sola a partir de los equipos, hasta que el técnico la edite a mano
@@ -2527,6 +2566,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     const equiposValidos = equipos
       .filter(e => e.modelo.trim() || (e.categoria && marcaFinal(e)))
       .map(e => ({ ...e, marca: marcaFinal(e), marcaOtra: undefined, modelo: e.modelo.trim() || e.tipoEquipo || "" }));
+    const ubic = ubicInst || await capturarUbicacion(6000);
+    if (!ubic) showToast("⚠️ Se guardó sin ubicación (permiso de ubicación no disponible)");
     let firmaKey: string | undefined;
     if (firmaInst) {
       try { firmaKey = await subirDataUrl(firmaInst, `firma-${codigo}.png`, `redes/${codigo}`); }
@@ -2543,8 +2584,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       plan: form.plan,
       estado: form.estado,
       equipos: equiposValidos,
+      ...(ubic ? { ubicacion: ubic } : {}),
       historial: [{
         id: uid(), fecha: form.fechaInstalacion, tipo: "instalacion",
+        ...(ubic ? { ubicacion: ubic } : {}),
         tecnico: currentUser.nombre,
         descripcion: form.descripcion || `Instalación de ${form.tipoServicio}${equiposValidos.length ? ` — ${equiposValidos.map(e => e.modelo).join(", ")}` : ""}.`,
         ...(fotosInst.length ? { fotos: fotosInst } : {}),
@@ -2689,12 +2732,16 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     }
   }
 
-  function guardarModificacion() {
+  async function guardarModificacion() {
     if (!detalle) return;
     if (!modForm.descripcion) { showToast("⚠️ La descripción es requerida"); return; }
     const esMantenimiento = modForm.tipo === "mantenimiento";
+    const previa = editingHistId ? detalle.historial.find(h => h.id === editingHistId) : undefined;
+    const ubicMod = previa ? previa.ubicacion : await capturarUbicacion(6000);
     const equipoTexto = modForm.equipoNuevo.trim() || modForm.equipoAfectado || "";
     const histEntry: HistorialRed = {
+      ...(previa || {}), // conserva firma, ubicación y enlace de firma al editar
+      ...(ubicMod ? { ubicacion: ubicMod } : {}),
       id: editingHistId || uid(), fecha: modForm.fecha, tipo: modForm.tipo, tecnico: modForm.tecnico || currentUser.nombre,
       descripcion: modForm.observaciones ? `${modForm.descripcion}\n\nObservaciones: ${modForm.observaciones}` : modForm.descripcion,
       motivo: modForm.motivo || undefined,
@@ -3081,6 +3128,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                   className="text-[#0ea5c8] hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#0ea5c8]/10 disabled:opacity-50">
                   {pdfGenerating ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
                 </button>
+                <button title="Eliminar servicio" onClick={() => eliminarServicio(detalle)}
+                  className="text-red-400 hover:text-red-300 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10">
+                  <Trash2 size={14} />
+                </button>
               </div>
             </div>
 
@@ -3151,6 +3202,11 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                         </ArchivoLink>
                       ))}
                     </div>
+                  )}
+                  {h.ubicacion && (
+                    <a href={mapaUrl(h.ubicacion)} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-[#0ea5c8] hover:underline">
+                      📍 Ver ubicación{h.ubicacion.precision ? ` (±${h.ubicacion.precision} m)` : ""}
+                    </a>
                   )}
                   {!h.firma && !h.firmaKey && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">

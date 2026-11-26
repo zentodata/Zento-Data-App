@@ -17,6 +17,7 @@ type HistorialRedPDF = {
   fotos?: ArchivoRedPDF[]; documentos?: ArchivoRedPDF[];
   resultado?: string; equiposRevisados?: string[];
   firma?: string; firmante?: string;
+  ubicacion?: { lat: number; lng: number; precision?: number };
 };
 export type ServicioRedPDF = {
   id: string; ot?: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
@@ -271,7 +272,7 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     const extraLines = extras.flatMap(e => doc.splitTextToSize(e, contentW));
     const tieneFotos = (h.fotos || []).length > 0;
 
-    const blockH = 22 + descImg.heightPt + extraLines.length * 10 + (tieneFotos ? 12 : 0) + 14;
+    const blockH = 22 + descImg.heightPt + extraLines.length * 10 + (tieneFotos ? 12 : 0) + (h.ubicacion ? 12 : 0) + 14;
     ensureSpace(blockH);
 
     doc.setFillColor(250, 251, 252);
@@ -296,6 +297,12 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     if (tieneFotos) {
       doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); doc.setTextColor(150, 156, 168);
       doc.text(`${h.fotos!.length} foto(s) — ver en la página de fotos`, marginX + 10, ly + 6);
+      ly += 12;
+    }
+    if (h.ubicacion) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(14, 165, 200);
+      const u = h.ubicacion;
+      doc.textWithLink(`Ubicación GPS: ${u.lat}, ${u.lng}${u.precision ? ` (±${u.precision} m)` : ""} — ver en Google Maps`, marginX + 10, ly + 6, { url: `https://www.google.com/maps?q=${u.lat},${u.lng}` });
     }
 
     y += blockH + 10;
