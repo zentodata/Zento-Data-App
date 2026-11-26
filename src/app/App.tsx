@@ -18,6 +18,8 @@ import {
 } from "@/app/cloudSync";
 import { buildHubSummary } from "@/app/hubSummary";
 import { SignaturePad } from "@/app/SignaturePad";
+import type { EstadoOrden, TiemposOrden, BorradorOrden } from "@/app/redesCatalogo";
+import { ORDEN_LABEL, ORDEN_PASOS, comoLlegarUrl, waUrl } from "@/app/redesCatalogo";
 import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, borrarArchivo, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
@@ -45,8 +47,8 @@ type Producto = {
   inversion: number; materiales: number; manoObra: number; sinFactura: boolean;
   proveedor: string; cat: string; unidad: string; gratis: boolean;
 };
-type CotItem = { id: string; qty: number; nombre: string; desc: string; precio: number };
-type Cotizacion = {
+export type CotItem = { id: string; qty: number; nombre: string; desc: string; precio: number };
+export type Cotizacion = {
   id: string; num: number; fecha: string; cliente: string; proyecto: string;
   email: string; whatsapp: string; ubicacion: string; validez: string;
   servicio: string; items: CotItem[]; subtotal: number;
@@ -68,15 +70,15 @@ type Mant = {
 };
 
 // ── Redes ──
-type EquipoRed = {
+export type EquipoRed = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
   ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
   garantia?: string;
   categoria?: "redes" | "camaras"; tipoEquipo?: string; cantidad?: number; marcaOtra?: string;
 };
-type UbicacionRed = { lat: number; lng: number; precision?: number; fecha: string }; // GPS al crear el reporte
-type ArchivoRed = { id: string; nombre: string; data: string; key?: string }; // key = ruta en Cloudflare R2 (data queda vacío)
-type HistorialRed = {
+export type UbicacionRed = { lat: number; lng: number; precision?: number; fecha: string }; // GPS al crear el reporte
+export type ArchivoRed = { id: string; nombre: string; data: string; key?: string }; // key = ruta en Cloudflare R2 (data queda vacío)
+export type HistorialRed = {
   id: string; fecha: string;
   tipo: "instalacion" | "modificacion" | "reemplazo" | "mantenimiento" | "incidencia" | "baja";
   tecnico: string; descripcion: string;
@@ -93,7 +95,7 @@ type HistorialRed = {
   firma?: string; firmaKey?: string; firmante?: string; // acta de entrega firmada (imagen PNG en base64)
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
-type ServicioRed = {
+export type ServicioRed = {
   id: string;
   ubicacion?: UbicacionRed; // ubicación donde se creó la instalación
   ot?: string; // número de orden de trabajo (5 dígitos) que se muestra en PDF y firma
@@ -105,6 +107,13 @@ type ServicioRed = {
   historial: HistorialRed[];
   fechaInstalacion: string; ultimaModificacion: string;
   fechaUltimoMant?: string; fechaProximoMant?: string;
+  // ── Orden de trabajo (la crea el CRM y la ejecuta la app de técnicos) ──
+  estadoOrden?: EstadoOrden;
+  direccion?: string; clienteWhatsapp?: string;
+  fechaProgramada?: string; // datetime-local "2026-11-26T09:00"
+  cotizacionId?: string; tecnicoAsignado?: string; notasOrden?: string;
+  tiempos?: TiemposOrden;
+  borrador?: BorradorOrden;
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
@@ -2289,6 +2298,11 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   const [modal, setModal] = useState(false);
   const [detalle, setDetalle] = useState<ServicioRed | null>(null);
   const [tipoOtro, setTipoOtro] = useState(false);
+  // ── Órdenes de trabajo (se ejecutan en la app de técnicos, /tecnico) ──
+  const ahoraLocal = () => { const d = new Date(Date.now() + 3600000); d.setMinutes(0, 0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const ordenVacia = () => ({ cotizacionId: "", clienteNombre: "", telefono: "", whatsapp: "", direccion: "", tipoServicio: "Cámaras IP", fechaProgramada: ahoraLocal(), tecnico: currentUser.nombre, notas: "" });
+  const [ordenModal, setOrdenModal] = useState(false);
+  const [ordenForm, setOrdenForm] = useState(ordenVacia);
   const [modModal, setModModal] = useState(false);
   const [modUploading, setModUploading] = useState(false);
   const [vista, setVista] = useState<"servicios" | "clientes">("servicios");
@@ -2326,7 +2340,13 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     ? clientesConocidos.filter(c => c.nombre.toLowerCase().includes(form.clienteNombre.toLowerCase())).slice(0, 6)
     : [];
 
+  // Las órdenes aún sin ejecutar viven en su propio panel; pasan a la tabla al terminarse
+  const SIN_EJECUTAR = ["asignada", "en_camino", "en_espera", "en_proceso"];
+  const ordenesActivas = redes.filter(r => r.estadoOrden && r.estadoOrden !== "firmada")
+    .sort((a, b) => (a.fechaProgramada || "").localeCompare(b.fechaProgramada || ""));
+  const [ordenesAbierto, setOrdenesAbierto] = useState(false);
   const filtered = redes.filter(r =>
+    !(r.estadoOrden && SIN_EJECUTAR.includes(r.estadoOrden)) &&
     (filtro === "todos" || r.estado === filtro) &&
     (!search || (r.clienteNombre + r.codigoCliente + (r.ot || "") + r.tipoServicio + r.equipos.map(e => e.modelo).join(" ")).toLowerCase().includes(search.toLowerCase()))
   );
@@ -2460,15 +2480,18 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         const { estados } = await estadoFirmas(pendientes);
         if (!activo || !Object.values(estados).some(e => e.firmado && e.firmaKey)) return;
         const firmados: string[] = [];
-        const next = redes.map(r => ({
-          ...r,
-          historial: r.historial.map(h => {
+        const next = redes.map(r => {
+          const historial = r.historial.map(h => {
             const e = h.firmaToken ? estados[h.firmaToken] : undefined;
             if (!e || !e.firmado || !e.firmaKey || h.firmaKey) return h;
             firmados.push(r.clienteNombre);
             return { ...h, firmaKey: e.firmaKey, firmante: e.firmante || r.clienteNombre, firmaToken: undefined, firmaTokenExp: undefined };
-          }),
-        }));
+          });
+          const cambio = historial.some((h, i) => h !== r.historial[i]);
+          return cambio
+            ? { ...r, historial, ultimaModificacion: new Date().toISOString(), ...(r.estadoOrden === "terminada" ? { estadoOrden: "firmada" as const } : {}) }
+            : r;
+        });
         setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
         setDetalle(d => d ? next.find(r => r.id === d.id) || d : d);
         showToast(`✅ ${firmados[0]} firmó el acta de entrega`);
@@ -2479,6 +2502,36 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     const t = setInterval(revisar, 20000);
     return () => { activo = false; clearInterval(t); };
   }, [redes]);
+
+  // Trae los cambios hechos desde la app de técnicos (/tecnico): cada 30 s y al entrar a Redes
+  const redesRef = useRef(redes);
+  redesRef.current = redes;
+  useEffect(() => {
+    let activo = true;
+    const sincronizar = async () => {
+      try {
+        const cloud = await fetchCloud<ServicioRed[]>("zRedes");
+        if (!activo || !cloud) return;
+        const nube = normRedes(cloud);
+        const actuales = redesRef.current;
+        const porId = new Map(actuales.map(r => [r.id, r]));
+        let cambio = false;
+        const nuevos: ServicioRed[] = [];
+        for (const c of nube) {
+          const l = porId.get(c.id);
+          if (!l) { nuevos.push(c); cambio = true; }
+          else if ((c.ultimaModificacion || "") > (l.ultimaModificacion || "")) { porId.set(c.id, c); cambio = true; }
+        }
+        if (!cambio) return;
+        const next = [...nuevos, ...actuales.map(r => porId.get(r.id) || r)];
+        setRedes(next); lsSet("zRedes", next);
+        setDetalle(d => d ? next.find(r => r.id === d.id) || d : d);
+      } catch { /* sin conexión: se reintenta */ }
+    };
+    sincronizar();
+    const t = setInterval(sincronizar, 30000);
+    return () => { activo = false; clearInterval(t); };
+  }, []);
 
   // ── Migración de adjuntos antiguos (base64 en Firebase/localStorage) a Cloudflare R2 ──
   const esB64 = (a?: { data?: string; key?: string }) => !!a && !a.key && !!a.data && a.data.startsWith("data:");
@@ -2545,6 +2598,41 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     const auto = buildDescAuto(form.tipoServicio, equipos);
     setForm(f => f.descripcion === auto ? f : { ...f, descripcion: auto });
   }, [equipos, form.tipoServicio, modal, descManual]);
+
+  function elegirCotizacion(id: string) {
+    const c = cotizaciones.find(x => x.id === id);
+    setOrdenForm(f => c ? {
+      ...f, cotizacionId: id, clienteNombre: c.cliente, whatsapp: c.whatsapp || f.whatsapp, telefono: f.telefono || c.whatsapp || "",
+      direccion: c.ubicacion || f.direccion,
+    } : { ...f, cotizacionId: "" });
+  }
+
+  function crearOrden() {
+    const f = ordenForm;
+    if (!f.clienteNombre.trim()) { showToast("⚠️ El cliente es requerido"); return; }
+    if (!(f.whatsapp || f.telefono).trim()) { showToast("⚠️ Agrega un teléfono o WhatsApp para contactar al cliente"); return; }
+    if (!f.direccion.trim()) { showToast("⚠️ La dirección del servicio es requerida"); return; }
+    const ahora = new Date().toISOString();
+    const nuevo: ServicioRed = {
+      id: uid(),
+      ot: genOT(new Set(redes.map(r => r.ot).filter((x): x is string => !!x))),
+      codigoCliente: nextCodigoCliente(f.clienteNombre.trim()),
+      clienteNombre: f.clienteNombre.trim(),
+      clienteTelefono: (f.telefono || f.whatsapp).trim(),
+      clienteWhatsapp: (f.whatsapp || f.telefono).trim(),
+      direccion: f.direccion.trim(),
+      tipoServicio: f.tipoServicio, proveedor: "", plan: "", estado: "programado",
+      equipos: [], historial: [],
+      fechaInstalacion: f.fechaProgramada.slice(0, 10), ultimaModificacion: ahora,
+      estadoOrden: "asignada", fechaProgramada: f.fechaProgramada,
+      cotizacionId: f.cotizacionId || undefined, tecnicoAsignado: f.tecnico.trim() || currentUser.nombre, notasOrden: f.notas.trim() || undefined,
+    };
+    const next = [nuevo, ...redes];
+    setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+    setOrdenModal(false);
+    showToast(`✅ Orden OT-${nuevo.ot} creada y asignada`);
+    addNotif({ tipo: "info", titulo: "Orden de trabajo creada", mensaje: `OT-${nuevo.ot} — ${nuevo.clienteNombre}`, modulo: "redes" });
+  }
 
   function addEquipo() { setEquipos([...equipos, emptyEquipo()]); }
   function delEquipo(id: string) { setEquipos(equipos.filter(e => e.id !== id)); }
@@ -2795,6 +2883,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <button onClick={() => setVista("clientes")} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${vista === "clientes" ? "bg-[#0ea5c8]/10 text-[#0ea5c8]" : "text-[#8090a8]"}`}>Clientes</button>
           </div>
           {porMigrar > 0 && <Btn variant="ghost" onClick={migrarAR2}>{migrando ? "Migrando..." : `☁️ Migrar ${porMigrar} archivo(s) a R2`}</Btn>}
+          <Btn variant="outline" onClick={() => { setOrdenForm(ordenVacia()); setOrdenModal(true); }}>📋 Nueva orden</Btn>
           <Btn onClick={abrirNuevo}><Plus size={14} /> Nueva instalación</Btn>
         </div>
       </div>
@@ -2806,6 +2895,42 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         <StatCard label="Incidencias" value={incidencias} color="#ef4444" />
         <StatCard label="Mant. Próximos (30d)" value={proximosMant.length} color="#0ea5c8" />
       </div>
+
+      {/* Órdenes de trabajo: panel propio, minimizado por defecto */}
+      {ordenesActivas.length > 0 && (
+        <div className="mb-4 bg-[#0b0e1a] border border-violet-500/30 rounded-xl">
+          <button onClick={() => setOrdenesAbierto(v => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
+            <span className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-violet-300">📋 Órdenes de trabajo</span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">{ordenesActivas.length} abierta{ordenesActivas.length > 1 ? "s" : ""}</span>
+              {!ordenesAbierto && ordenesActivas.slice(0, 3).map(o => (
+                <span key={o.id} className="text-[11px] text-[#8090a8] hidden sm:inline">OT-{o.ot} · {o.clienteNombre}</span>
+              ))}
+            </span>
+            <span className="text-[#8090a8] text-xs">{ordenesAbierto ? "▲ Minimizar" : "▼ Ver"}</span>
+          </button>
+          {ordenesAbierto && (
+            <div className="px-3 pb-3 space-y-1.5">
+              {ordenesActivas.map(o => (
+                <button key={o.id} onClick={() => setDetalle(o)}
+                  className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 bg-[#060810] border border-[#1a2235] rounded-lg hover:border-violet-500/40">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-[#10b981] font-mono font-bold">OT-{o.ot}</span>
+                      <span className="text-sm text-white font-medium truncate">{o.clienteNombre}</span>
+                    </div>
+                    <div className="text-[11px] text-[#8090a8]">
+                      {o.tipoServicio}{o.fechaProgramada ? ` · ${new Date(o.fechaProgramada).toLocaleString("es-GT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                      {o.direccion ? ` · ${o.direccion}` : ""}
+                    </div>
+                  </div>
+                  <Badge className="text-violet-300 bg-violet-500/10 border-violet-500/30 shrink-0">{ORDEN_LABEL[o.estadoOrden as EstadoOrden]}</Badge>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {proximosMant.length > 0 && (
         <Card className="mb-4">
@@ -2868,7 +2993,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                     <tr key={r.id} onClick={() => setDetalle(r)} className="border-b border-[#0f1220] hover:bg-[#0a0d1a] cursor-pointer">
                       <td className="py-2.5 px-3 text-xs text-[#0ea5c8] font-mono">{r.codigoCliente}</td>
                       <td className="py-2.5 px-3 text-sm font-medium text-white">{r.clienteNombre}</td>
-                      <td className="py-2.5 px-3 text-xs text-[#c8d8e8]">{r.tipoServicio}</td>
+                      <td className="py-2.5 px-3 text-xs text-[#c8d8e8]">
+                        {r.tipoServicio}
+                        {r.estadoOrden && r.estadoOrden !== "firmada" && <div className="mt-1"><span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/30">📋 {ORDEN_LABEL[r.estadoOrden]}</span></div>}
+                      </td>
                       <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.equipos.map(e => e.modelo).join(", ") || "—"}</td>
                       <td className="py-2.5 px-3"><Badge className={ESTADO_RED_COLORS[r.estado]}>{ESTADO_RED_LABELS[r.estado]}</Badge></td>
                       <td className="py-2.5 px-3 text-xs text-[#8090a8]">{r.ultimaModificacion ? new Date(r.ultimaModificacion).toLocaleDateString("es-GT") : "—"}</td>
@@ -2909,6 +3037,44 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
           )}
         </Card>
       )}
+
+      {/* ── Modal: Nueva orden de trabajo ── */}
+      <Modal open={ordenModal} onClose={() => setOrdenModal(false)} title="Nueva orden de trabajo" width="max-w-xl" persistent>
+        <div className="space-y-3">
+          <p className="text-xs text-[#8090a8]">La orden aparece en la app de técnicos (<span className="font-mono text-[#0ea5c8]">/tecnico</span>), donde se ejecuta paso a paso con fotos, firma y ubicación.</p>
+          <Select label="Cotización vinculada (opcional)" value={ordenForm.cotizacionId} onChange={e => elegirCotizacion(e.target.value)}>
+            <option value="">— Sin cotización —</option>
+            {[...cotizaciones].sort((a, b) => cotNumOf(b) - cotNumOf(a)).map(c => <option key={c.id + c.fecha} value={c.id}>{c.id} · {c.cliente} · {fmt(c.total)}</option>)}
+          </Select>
+          <div>
+            <Input label="Cliente *" list="clientes-orden" value={ordenForm.clienteNombre}
+              onChange={e => { const v = e.target.value; const k = clientesConocidos.find(c => c.nombre.toLowerCase() === v.toLowerCase()); setOrdenForm(f => ({ ...f, clienteNombre: v, telefono: k?.telefono || f.telefono, whatsapp: k?.telefono || f.whatsapp })); }}
+              placeholder="Escribe para buscar un cliente..." />
+            <datalist id="clientes-orden">{clientesConocidos.map(c => <option key={c.nombre} value={c.nombre} />)}</datalist>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Teléfono" value={ordenForm.telefono} onChange={e => setOrdenForm(f => ({ ...f, telefono: e.target.value }))} placeholder="5555-1234" />
+            <Input label="WhatsApp" value={ordenForm.whatsapp} onChange={e => setOrdenForm(f => ({ ...f, whatsapp: e.target.value }))} placeholder="5555-1234" />
+          </div>
+          <Input label="Dirección del servicio *" value={ordenForm.direccion} onChange={e => setOrdenForm(f => ({ ...f, direccion: e.target.value }))} placeholder="Calle, zona, ciudad, referencia" />
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Tipo de orden" value={ordenForm.tipoServicio} onChange={e => setOrdenForm(f => ({ ...f, tipoServicio: e.target.value }))}>
+              {TIPOS_SERVICIO_RED.map(t => <option key={t}>{t}</option>)}
+            </Select>
+            <Input label="Fecha y hora" type="datetime-local" value={ordenForm.fechaProgramada} onChange={e => setOrdenForm(f => ({ ...f, fechaProgramada: e.target.value }))} />
+          </div>
+          <Input label="Técnico asignado" value={ordenForm.tecnico} onChange={e => setOrdenForm(f => ({ ...f, tecnico: e.target.value }))} />
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Notas para el técnico</label>
+            <textarea value={ordenForm.notas} onChange={e => setOrdenForm(f => ({ ...f, notas: e.target.value }))} rows={2}
+              className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Btn variant="ghost" onClick={() => setOrdenModal(false)}>Cancelar</Btn>
+            <Btn onClick={crearOrden}>📋 Crear y asignar</Btn>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Modal: Nueva instalación ── */}
       <Modal open={modal} onClose={() => setModal(false)} title="Nueva Instalación de Red" width="max-w-xl" persistent>
@@ -3152,6 +3318,36 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                 ) : <span className="text-[#5a6a80]">-</span>}
               </div>
             </div>
+
+            {detalle.estadoOrden && (
+              <div className="bg-[#060810] border border-violet-500/25 rounded-lg p-3 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-violet-300 uppercase tracking-wider">📋 Orden de trabajo</span>
+                  <Badge className="text-violet-300 bg-violet-500/10 border-violet-500/30">{ORDEN_LABEL[detalle.estadoOrden]}</Badge>
+                </div>
+                <div className="flex gap-1 mb-1">
+                  {ORDEN_PASOS.map((_, i) => {
+                    const idx = ["asignada", "en_camino", "en_espera", "en_proceso", "terminada", "firmada"].indexOf(detalle.estadoOrden as string);
+                    return <div key={i} className={`h-1 flex-1 rounded ${i <= idx ? "bg-violet-400" : "bg-[#1a2235]"}`} />;
+                  })}
+                </div>
+                {detalle.fechaProgramada && <div><span className="text-[#8090a8]">Programada:</span> <span className="text-white">{new Date(detalle.fechaProgramada).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" })}</span></div>}
+                {detalle.direccion && <div><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{detalle.direccion}</span> · <a href={comoLlegarUrl(detalle.direccion)} target="_blank" rel="noopener noreferrer" className="text-[#0ea5c8] hover:underline">Cómo llegar</a></div>}
+                {(detalle.clienteWhatsapp || detalle.clienteTelefono) && <div><span className="text-[#8090a8]">Contacto:</span> <span className="text-white">{detalle.clienteTelefono}</span> · <a href={waUrl(detalle.clienteWhatsapp || detalle.clienteTelefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">WhatsApp</a></div>}
+                {detalle.tecnicoAsignado && <div><span className="text-[#8090a8]">Técnico:</span> <span className="text-white">{detalle.tecnicoAsignado}</span></div>}
+                {detalle.cotizacionId && <div><span className="text-[#8090a8]">Cotización:</span> <span className="text-[#0ea5c8] font-mono">{detalle.cotizacionId}</span></div>}
+                {detalle.notasOrden && <div><span className="text-[#8090a8]">Notas:</span> <span className="text-white">{detalle.notasOrden}</span></div>}
+                {(["camino", "llegada", "inicio", "fin"] as const).filter(k => detalle.tiempos?.[k]).map(k => {
+                  const t = detalle.tiempos![k]!;
+                  return (
+                    <div key={k}><span className="text-[#8090a8]">{{ camino: "Salió", llegada: "Llegó", inicio: "Inició", fin: "Terminó" }[k]}:</span>{" "}
+                      <span className="text-white">{new Date(t.fecha).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" })}</span>
+                      {t.ubicacion && <> · <a href={mapaUrl(t.ubicacion)} target="_blank" rel="noopener noreferrer" className="text-[#0ea5c8] hover:underline">📍 mapa</a></>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {detalle.equipos.length > 0 && (
               <div>

@@ -1,0 +1,19 @@
+{
+  "id": "com.zentodata.tecnico",
+  "name": "Zento Técnico — Órdenes de trabajo",
+  "short_name": "Zento Técnico",
+  "description": "Órdenes de trabajo de Zento Data: ruta, evidencia, firma del cliente y cierre.",
+  "start_url": "/tecnico/",
+  "scope": "/tecnico/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f2f3f8",
+  "theme_color": "#1f2a7a",
+  "lang": "es-GT",
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/web-app-manifest-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+  ]
+}

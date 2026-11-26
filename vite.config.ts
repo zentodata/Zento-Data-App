@@ -31,6 +31,16 @@ export default defineConfig({
     },
   },
 
+  build: {
+    rollupOptions: {
+      // Dos entradas: el CRM (/) y la app de técnicos (/tecnico/)
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        tecnico: path.resolve(__dirname, 'tecnico/index.html'),
+      },
+    },
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
