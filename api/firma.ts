@@ -10,6 +10,7 @@ const DIAS = 7;
 
 type Solicitud = {
   codigo: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[];
+  fotos?: string[]; // rutas en R2 de las fotos de la instalación
   creadoEn: string; expiraEn: string;
   firmado?: boolean; firmaKey?: string; firmante?: string; firmadoEn?: string;
 };
@@ -21,12 +22,12 @@ export default async function handler(req: any, res: any) {
 
   let m;
   try {
-    const [aws, jose, crypto] = await Promise.all([import("@aws-sdk/client-s3"), import("jose"), import("node:crypto")]);
-    m = { ...aws, ...jose, randomBytes: crypto.randomBytes };
+    const [aws, jose, crypto, presigner] = await Promise.all([import("@aws-sdk/client-s3"), import("jose"), import("node:crypto"), import("@aws-sdk/s3-request-presigner")]);
+    m = { ...aws, ...jose, ...presigner, randomBytes: crypto.randomBytes };
   } catch (e) {
     return res.status(500).json({ error: "Faltan dependencias en el servidor", detalle: String((e as Error).message || "").slice(0, 200) });
   }
-  const { S3Client, PutObjectCommand, GetObjectCommand, createRemoteJWKSet, jwtVerify, randomBytes } = m;
+  const { S3Client, PutObjectCommand, GetObjectCommand, createRemoteJWKSet, jwtVerify, randomBytes, getSignedUrl } = m;
 
   const bucket = env("R2_BUCKET");
   const projectId = env("FIREBASE_PROJECT_ID") || env("VITE_FIREBASE_PROJECT_ID");
@@ -55,8 +56,15 @@ export default async function handler(req: any, res: any) {
       const token = String(body.token || "");
       const s = TOKEN_OK.test(token) ? await leer(token) : null;
       if (!s) return res.status(404).json({ error: "Enlace no válido" });
+      // Fotos de la instalación: URLs firmadas de lectura (1 h) para que el cliente las vea
+      const fotos: string[] = [];
+      if (!s.firmado) {
+        for (const k of (s.fotos || []).slice(0, 8)) {
+          try { fotos.push(await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: k }), { expiresIn: 3600 })); } catch { /* se omite */ }
+        }
+      }
       return res.status(200).json({
-        cliente: s.cliente, codigo: s.codigo, descripcion: s.descripcion, equipos: s.equipos,
+        cliente: s.cliente, codigo: s.codigo, descripcion: s.descripcion, equipos: s.equipos, fotos,
         firmado: !!s.firmado, expirado: new Date(s.expiraEn).getTime() < Date.now(),
       });
     }
@@ -95,6 +103,7 @@ export default async function handler(req: any, res: any) {
         codigo: texto(body.codigo, 30), servicioId: texto(body.servicioId, 60), histId: texto(body.histId, 60),
         cliente: texto(body.cliente, 100), descripcion: texto(body.descripcion, 2000),
         equipos: (Array.isArray(body.equipos) ? body.equipos : []).slice(0, 30).map((x: unknown) => texto(x, 120)),
+        fotos: (Array.isArray(body.fotos) ? body.fotos : []).filter((k: unknown): k is string => typeof k === "string" && /^redes\/[A-Za-z0-9_\-./]{1,200}$/.test(k) && !k.includes("..")).slice(0, 8),
         creadoEn: ahora.toISOString(), expiraEn: new Date(ahora.getTime() + DIAS * 86400000).toISOString(),
       };
       await guardar(token, s);
