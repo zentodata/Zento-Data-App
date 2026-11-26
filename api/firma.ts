@@ -9,7 +9,7 @@ const TOKEN_OK = /^[a-f0-9]{48}$/;
 const DIAS = 7;
 
 type Solicitud = {
-  codigo: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[];
+  codigo: string; ot?: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[];
   fotos?: string[]; // rutas en R2 de las fotos de la instalación
   creadoEn: string; expiraEn: string;
   firmado?: boolean; firmaKey?: string; firmante?: string; firmadoEn?: string;
@@ -64,7 +64,7 @@ export default async function handler(req: any, res: any) {
         }
       }
       return res.status(200).json({
-        cliente: s.cliente, codigo: s.codigo, descripcion: s.descripcion, equipos: s.equipos, fotos,
+        cliente: s.cliente, codigo: s.codigo, ot: s.ot, descripcion: s.descripcion, equipos: s.equipos, fotos,
         firmado: !!s.firmado, expirado: new Date(s.expiraEn).getTime() < Date.now(),
       });
     }
@@ -100,7 +100,7 @@ export default async function handler(req: any, res: any) {
       const token = randomBytes(24).toString("hex");
       const ahora = new Date();
       const s: Solicitud = {
-        codigo: texto(body.codigo, 30), servicioId: texto(body.servicioId, 60), histId: texto(body.histId, 60),
+        codigo: texto(body.codigo, 30), ot: /^\d{5}$/.test(String(body.ot || "")) ? String(body.ot) : undefined, servicioId: texto(body.servicioId, 60), histId: texto(body.histId, 60),
         cliente: texto(body.cliente, 100), descripcion: texto(body.descripcion, 2000),
         equipos: (Array.isArray(body.equipos) ? body.equipos : []).slice(0, 30).map((x: unknown) => texto(x, 120)),
         fotos: (Array.isArray(body.fotos) ? body.fotos : []).filter((k: unknown): k is string => typeof k === "string" && /^redes\/[A-Za-z0-9_\-./]{1,200}$/.test(k) && !k.includes("..")).slice(0, 8),

@@ -85,6 +85,21 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ urls });
     }
 
+    // Devuelve el archivo como data URL (para incrustar fotos en el PDF sin depender de CORS)
+    if (body.action === "data") {
+      const k = String(body.key || "");
+      if (!KEY_VALIDA.test(k) || k.includes("..")) return res.status(400).json({ error: "Ruta inválida" });
+      const { GetObjectCommand: Get } = mods;
+      const r = await client.send(new Get({ Bucket: bucket, Key: k }));
+      const buf = Buffer.from(await r.Body!.transformToByteArray());
+      if (buf.length > 3_000_000) return res.status(413).json({ error: "Archivo muy grande" });
+      const mime = buf[0] === 0xff && buf[1] === 0xd8 ? "image/jpeg"
+        : buf.subarray(1, 4).toString() === "PNG" ? "image/png"
+        : buf.subarray(0, 4).toString() === "RIFF" && buf.subarray(8, 12).toString() === "WEBP" ? "image/webp" : "";
+      if (!mime) return res.status(415).json({ error: "No es una imagen" });
+      return res.status(200).json({ dataUrl: `data:${mime};base64,${buf.toString("base64")}` });
+    }
+
     if (body.action === "delete") {
       const k = String(body.key || "");
       if (!KEY_VALIDA.test(k) || k.includes("..")) return res.status(400).json({ error: "Ruta inválida" });
