@@ -17,6 +17,7 @@ import {
   getUserProfile, setUserProfile, fetchAllUserProfiles, publishHubSummary,
 } from "@/app/cloudSync";
 import { buildHubSummary } from "@/app/hubSummary";
+import { subirArchivo, subirDataUrl, urlDe, dataUrlDe } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -72,7 +73,7 @@ type EquipoRed = {
   garantia?: string;
   categoria?: "redes" | "camaras"; tipoEquipo?: string; cantidad?: number; marcaOtra?: string;
 };
-type ArchivoRed = { id: string; nombre: string; data: string };
+type ArchivoRed = { id: string; nombre: string; data: string; key?: string }; // key = ruta en Cloudflare R2 (data queda vacío)
 type HistorialRed = {
   id: string; fecha: string;
   tipo: "instalacion" | "modificacion" | "reemplazo" | "mantenimiento" | "incidencia" | "baja";
@@ -85,7 +86,7 @@ type HistorialRed = {
   documentos?: ArchivoRed[];
   resultado?: string;
   equiposRevisados?: string[];
-  firma?: string; firmante?: string; // acta de entrega firmada (imagen PNG en base64)
+  firma?: string; firmaKey?: string; firmante?: string; // acta de entrega firmada (imagen PNG en base64)
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
@@ -2208,6 +2209,39 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
   );
 }
 
+// Resuelve la URL de un adjunto: base64 antiguo (data) o archivo en R2 (key → URL firmada)
+function useArchivoUrl(a: { data?: string; key?: string } | null | undefined): string {
+  const [url, setUrl] = useState(a?.key ? "" : a?.data || "");
+  useEffect(() => {
+    let vivo = true;
+    if (!a) { setUrl(""); return; }
+    if (a.key) { setUrl(""); urlDe(a.key).then(u => vivo && setUrl(u)).catch(() => vivo && setUrl("")); }
+    else setUrl(a.data || "");
+    return () => { vivo = false; };
+  }, [a?.key, a?.data]);
+  return url;
+}
+function ArchivoImg({ a, className, alt }: { a: { data?: string; key?: string }; className?: string; alt?: string }) {
+  const url = useArchivoUrl(a);
+  return url ? <img src={url} alt={alt || ""} className={className} /> : <div className={`${className || ""} bg-[#0f1424] animate-pulse`} />;
+}
+function ArchivoLink({ a, children, className, title, download }: { a: { data?: string; key?: string }; children: React.ReactNode; className?: string; title?: string; download?: string }) {
+  const url = useArchivoUrl(a);
+  return <a href={url || undefined} target="_blank" rel="noopener noreferrer" className={className} title={title} {...(a.key ? {} : download ? { download } : {})}>{children}</a>;
+}
+// Para el PDF: trae de R2 las fotos y la firma como data URL
+async function hidratarServicio(sv: ServicioRed): Promise<ServicioRed> {
+  return {
+    ...sv,
+    historial: await Promise.all(sv.historial.map(async h => ({
+      ...h,
+      fotos: await Promise.all((h.fotos || []).map(async f => ({ ...f, data: await dataUrlDe(f) }))),
+      firma: h.firmaKey ? await dataUrlDe({ key: h.firmaKey }) : h.firma,
+    }))),
+  };
+}
+const carpetaMes = () => `redes/adjuntos/${today().slice(0, 7)}`;
+
 // Lienzo de firma: funciona con dedo, lápiz táctil y mouse (Pointer Events)
 function SignaturePad({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -2395,6 +2429,51 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     return `ZD-${String(next).padStart(4, "0")}`;
   }
 
+  // ── Migración de adjuntos antiguos (base64 en Firebase/localStorage) a Cloudflare R2 ──
+  const esB64 = (a?: { data?: string; key?: string }) => !!a && !a.key && !!a.data && a.data.startsWith("data:");
+  const porMigrar = redes.reduce((n, r) => n + r.historial.reduce((m, h) =>
+    m + (h.fotos || []).filter(esB64).length + (h.documentos || []).filter(esB64).length + (h.firma && !h.firmaKey ? 1 : 0), 0), 0);
+  const [migrando, setMigrando] = useState(false);
+
+  async function migrarAR2() {
+    if (migrando) return;
+    if (!confirm(`Se subirán ${porMigrar} archivo(s) a Cloudflare R2 y se quitarán de la base de datos. Los originales solo se eliminan si la subida salió bien. ¿Continuar?`)) return;
+    setMigrando(true);
+    let ok = 0, fallos = 0;
+    const subir = async (dataUrl: string, nombre: string, carpeta: string) => {
+      try { const k = await subirDataUrl(dataUrl, nombre, carpeta); ok++; return k; } catch { fallos++; return null; }
+    };
+    try {
+      const nuevo: ServicioRed[] = [];
+      for (const r of redes) {
+        const hist: HistorialRed[] = [];
+        for (const h of r.historial) {
+          const fotos: ArchivoRed[] = [];
+          for (const f of h.fotos || []) {
+            if (!esB64(f)) { fotos.push(f); continue; }
+            const k = await subir(f.data, f.nombre.replace(/\.\w+$/, "") + ".jpg", `redes/${r.codigoCliente}`);
+            fotos.push(k ? { ...f, key: k, data: "" } : f);
+          }
+          const docs: ArchivoRed[] = [];
+          for (const d of h.documentos || []) {
+            if (!esB64(d)) { docs.push(d); continue; }
+            const k = await subir(d.data, d.nombre, `redes/${r.codigoCliente}`);
+            docs.push(k ? { ...d, key: k, data: "" } : d);
+          }
+          let firma = h.firma, firmaKey = h.firmaKey;
+          if (firma && !firmaKey) {
+            const k = await subir(firma, `firma-${r.codigoCliente}.png`, `redes/${r.codigoCliente}`);
+            if (k) { firmaKey = k; firma = undefined; }
+          }
+          hist.push({ ...h, fotos, documentos: docs, firma, firmaKey });
+        }
+        nuevo.push({ ...r, historial: hist });
+      }
+      setRedes(nuevo); persist("zRedes", nuevo); lsSet("zRedes", nuevo);
+      showToast(fallos ? `⚠️ Migrados ${ok}, con ${fallos} error(es). Vuelve a intentarlo.` : `✅ ${ok} archivo(s) migrados a R2`);
+    } finally { setMigrando(false); }
+  }
+
   function abrirNuevo() {
     setForm(emptyForm);
     setEquipos([emptyEquipo()]);
@@ -2414,7 +2493,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   function delEquipo(id: string) { setEquipos(equipos.filter(e => e.id !== id)); }
   function updEquipo(id: string, k: keyof EquipoRed, v: string | number | undefined) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
 
-  function guardar() {
+  async function guardar() {
     if (!form.clienteNombre) { showToast("⚠️ El cliente es requerido"); return; }
     if (!form.tipoServicio) { showToast("⚠️ El tipo de servicio es requerido"); return; }
     const codigo = nextCodigoCliente(form.clienteNombre);
@@ -2424,6 +2503,11 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     const equiposValidos = equipos
       .filter(e => e.modelo.trim() || (e.categoria && marcaFinal(e)))
       .map(e => ({ ...e, marca: marcaFinal(e), marcaOtra: undefined, modelo: e.modelo.trim() || e.tipoEquipo || "" }));
+    let firmaKey: string | undefined;
+    if (firmaInst) {
+      try { firmaKey = await subirDataUrl(firmaInst, `firma-${codigo}.png`, `redes/${codigo}`); }
+      catch { showToast("⚠️ La firma se guardó solo en este dispositivo (sin conexión al almacenamiento)"); }
+    }
     const nuevo: ServicioRed = {
       id: uid(),
       codigoCliente: codigo,
@@ -2439,7 +2523,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         tecnico: currentUser.nombre,
         descripcion: form.descripcion || `Instalación de ${form.tipoServicio}${equiposValidos.length ? ` — ${equiposValidos.map(e => e.modelo).join(", ")}` : ""}.`,
         ...(fotosInst.length ? { fotos: fotosInst } : {}),
-        ...(firmaInst ? { firma: firmaInst, firmante: firmanteInst.trim() || form.clienteNombre } : {}),
+        ...(firmaInst ? { ...(firmaKey ? { firmaKey } : { firma: firmaInst }), firmante: firmanteInst.trim() || form.clienteNombre } : {}),
       }],
       fechaInstalacion: form.fechaInstalacion,
       ultimaModificacion: ahora,
@@ -2519,6 +2603,17 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     });
   }
 
+  // Sube la foto a R2; si no hay conexión/servidor, la deja en base64 como respaldo
+  async function aArchivoR2(dataUrl: string, nombre: string): Promise<ArchivoRed> {
+    try {
+      const key = await subirDataUrl(dataUrl, nombre.replace(/\.\w+$/, "") + ".jpg", carpetaMes());
+      return { id: uid(), nombre, data: "", key };
+    } catch {
+      showToast("⚠️ Sin conexión al almacenamiento; la foto se guardó solo en este dispositivo");
+      return { id: uid(), nombre, data: dataUrl };
+    }
+  }
+
   async function handleFotos(files: FileList | null) {
     if (!files || files.length === 0) return;
     if (modFotos.length + files.length > 5) { showToast("⚠️ Máximo 5 fotos por modificación"); return; }
@@ -2528,7 +2623,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         if (!file.type.startsWith("image/")) { showToast(`⚠️ "${file.name}" no es una imagen`); continue; }
         if (file.size > 15 * 1024 * 1024) { showToast(`⚠️ "${file.name}" pesa más de 15 MB`); continue; }
         const data = await compressImage(file);
-        setModFotos(prev => [...prev, { id: uid(), nombre: file.name, data }]);
+        const arch = await aArchivoR2(data, file.name);
+        setModFotos(prev => [...prev, arch]);
       }
     } finally {
       setModUploading(false);
@@ -2543,7 +2639,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       for (const file of Array.from(files)) {
         if (!file.type.startsWith("image/")) { showToast(`⚠️ "${file.name}" no es una imagen`); continue; }
         const data = await compressImage(file);
-        setFotosInst(prev => [...prev, { id: uid(), nombre: file.name, data }]);
+        const arch = await aArchivoR2(data, file.name);
+        setFotosInst(prev => [...prev, arch]);
       }
     } catch { showToast("⚠️ No se pudo procesar una foto"); }
     finally { setModUploading(false); }
@@ -2556,8 +2653,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     try {
       for (const file of Array.from(files)) {
         if (file.size > 1024 * 1024) { showToast(`⚠️ "${file.name}" pesa más de 1 MB`); continue; }
-        const data = await fileToBase64(file);
-        setModDocs(prev => [...prev, { id: uid(), nombre: file.name, data }]);
+        let nuevo: ArchivoRed;
+        try { nuevo = { id: uid(), nombre: file.name, data: "", key: await subirArchivo(file, file.name, carpetaMes()) }; }
+        catch { nuevo = { id: uid(), nombre: file.name, data: await fileToBase64(file) }; showToast("⚠️ Sin conexión al almacenamiento; el archivo se guardó solo en este dispositivo"); }
+        setModDocs(prev => [...prev, nuevo]);
       }
     } finally {
       setModUploading(false);
@@ -2628,6 +2727,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <button onClick={() => setVista("servicios")} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${vista === "servicios" ? "bg-[#0ea5c8]/10 text-[#0ea5c8]" : "text-[#8090a8]"}`}>Servicios</button>
             <button onClick={() => setVista("clientes")} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${vista === "clientes" ? "bg-[#0ea5c8]/10 text-[#0ea5c8]" : "text-[#8090a8]"}`}>Clientes</button>
           </div>
+          {porMigrar > 0 && <Btn variant="ghost" onClick={migrarAR2}>{migrando ? "Migrando..." : `☁️ Migrar ${porMigrar} archivo(s) a R2`}</Btn>}
           <Btn onClick={abrirNuevo}><Plus size={14} /> Nueva instalación</Btn>
         </div>
       </div>
@@ -2886,7 +2986,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <div className="flex flex-wrap gap-2">
               {fotosInst.map(f => (
                 <div key={f.id} className="relative w-20 h-20">
-                  <img src={f.data} alt={f.nombre} className="w-full h-full object-cover rounded-lg border border-[#1a2235]" />
+                  <ArchivoImg a={f} alt={f.nombre} className="w-full h-full object-cover rounded-lg border border-[#1a2235]" />
                   <button type="button" onClick={() => setFotosInst(prev => prev.filter(x => x.id !== f.id))}
                     className="absolute -top-1.5 -right-1.5 bg-[#0b0e1a] border border-[#1a2235] text-red-400 rounded-full p-0.5"><X size={12} /></button>
                 </div>
@@ -2933,7 +3033,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
               <div className="flex items-center gap-2">
                 <Badge className={ESTADO_RED_COLORS[detalle.estado]}>{ESTADO_RED_LABELS[detalle.estado]}</Badge>
                 <button title="Descargar PDF" disabled={pdfGenerating}
-                  onClick={async () => { setPdfGenerating(true); try { await descargarPdfServicioRed(detalle); } finally { setPdfGenerating(false); } }}
+                  onClick={async () => { setPdfGenerating(true); try { await descargarPdfServicioRed(await hidratarServicio(detalle)); } finally { setPdfGenerating(false); } }}
                   className="text-[#0ea5c8] hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#0ea5c8]/10 disabled:opacity-50">
                   {pdfGenerating ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
                 </button>
@@ -3001,24 +3101,24 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                   {h.fotos && h.fotos.length > 0 && (
                     <div className="flex gap-1.5 mt-2 flex-wrap">
                       {h.fotos.map(f => (
-                        <a key={f.id} href={f.data} target="_blank" rel="noopener noreferrer" title={f.nombre}>
-                          <img src={f.data} alt={f.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
-                        </a>
+                        <ArchivoLink key={f.id} a={f} title={f.nombre}>
+                          <ArchivoImg a={f} alt={f.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
+                        </ArchivoLink>
                       ))}
                     </div>
                   )}
-                  {h.firma && (
+                  {(h.firma || h.firmaKey) && (
                     <div className="mt-2">
                       <p className="text-[#8090a8] mb-1">Acta de entrega firmada por {h.firmante || "el cliente"}</p>
-                      <a href={h.firma} target="_blank" rel="noopener noreferrer"><img src={h.firma} alt="Firma" className="h-14 bg-white rounded border border-[#1a2235]" /></a>
+                      <ArchivoLink a={h.firmaKey ? { key: h.firmaKey } : { data: h.firma }}><ArchivoImg a={h.firmaKey ? { key: h.firmaKey } : { data: h.firma }} alt="Firma" className="h-14 w-32 bg-white rounded border border-[#1a2235]" /></ArchivoLink>
                     </div>
                   )}
                   {h.documentos && h.documentos.length > 0 && (
                     <div className="flex flex-col gap-1 mt-2">
                       {h.documentos.map(d => (
-                        <a key={d.id} href={d.data} download={d.nombre} className="flex items-center gap-1.5 text-[#0ea5c8] hover:underline">
+                        <ArchivoLink key={d.id} a={d} download={d.nombre} className="flex items-center gap-1.5 text-[#0ea5c8] hover:underline">
                           <FileText size={11} /> {d.nombre}
-                        </a>
+                        </ArchivoLink>
                       ))}
                     </div>
                   )}
@@ -3128,7 +3228,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <div className="flex flex-wrap gap-2 mb-2">
               {modFotos.map(f => (
                 <div key={f.id} className="relative">
-                  <img src={f.data} alt={f.nombre} className="w-14 h-14 object-cover rounded border border-[#1a2235]" />
+                  <ArchivoImg a={f} alt={f.nombre} className="w-14 h-14 object-cover rounded border border-[#1a2235]" />
                   <button onClick={() => setModFotos(modFotos.filter(x => x.id !== f.id))} className="absolute -top-1.5 -right-1.5 bg-red-500 rounded-full w-4 h-4 flex items-center justify-center text-white"><X size={10} /></button>
                 </div>
               ))}
@@ -3248,13 +3348,13 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                 <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Fotos y documentos ({documentosCliente.length})</div>
                 <div className="flex flex-wrap gap-1.5">
                   {documentosCliente.map(d => d.tipo === "foto" ? (
-                    <a key={d.id} href={d.data} target="_blank" rel="noopener noreferrer" title={d.nombre}>
-                      <img src={d.data} alt={d.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
-                    </a>
+                    <ArchivoLink key={d.id} a={d} title={d.nombre}>
+                      <ArchivoImg a={d} alt={d.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
+                    </ArchivoLink>
                   ) : (
-                    <a key={d.id} href={d.data} download={d.nombre} className="flex items-center gap-1 text-xs text-[#0ea5c8] bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 hover:underline">
+                    <ArchivoLink key={d.id} a={d} download={d.nombre} className="flex items-center gap-1 text-xs text-[#0ea5c8] bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 hover:underline">
                       <FileText size={11} /> {d.nombre}
-                    </a>
+                    </ArchivoLink>
                   ))}
                 </div>
               </div>
