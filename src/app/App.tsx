@@ -2383,6 +2383,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       const { token, expiraEn } = await crearSolicitudFirma({
         codigo: sv.codigoCliente, servicioId: sv.id, histId: h.id, cliente: sv.clienteNombre,
         descripcion: h.descripcion, equipos: resumenEquipos(sv),
+        fotos: (h.fotos || []).map(f => f.key).filter((k): k is string => !!k),
       });
       const next = base.map(r => r.id !== svId ? r : { ...r, historial: r.historial.map(x => x.id === histId ? { ...x, firmaToken: token, firmaTokenExp: expiraEn } : x) });
       setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
@@ -3135,6 +3136,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                         <>
                           <span className="text-amber-400">⏳ Esperando la firma del cliente</span>
                           <button onClick={() => setEnlaceFirma({ url: urlEnlaceFirma(h.firmaToken as string), cliente: detalle.clienteNombre, telefono: detalle.clienteTelefono })} className="text-[#0ea5c8] hover:underline">Ver enlace</button>
+                          <button disabled={creandoEnlace} onClick={() => crearEnlaceFirma(redes, detalle.id, h.id)} className="text-[#8090a8] hover:underline disabled:opacity-50">Regenerar</button>
                         </>
                       ) : (
                         <button disabled={creandoEnlace} onClick={() => crearEnlaceFirma(redes, detalle.id, h.id)} className="text-[#0ea5c8] hover:underline disabled:opacity-50">

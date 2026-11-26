@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { SignaturePad } from "@/app/SignaturePad";
 import logoImg from "@/imports/PERFIL-Photoroom_-_copia.png";
 
-type Info = { cliente: string; codigo: string; descripcion: string; equipos: string[]; firmado: boolean; expirado: boolean };
+type Info = { cliente: string; codigo: string; descripcion: string; equipos: string[]; fotos?: string[]; firmado: boolean; expirado: boolean };
 
 async function post<T>(body: unknown): Promise<{ ok: boolean; status: number; data: T & { error?: string } }> {
   const r = await fetch("/api/firma", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -80,6 +80,20 @@ export default function FirmaPublica({ token }: { token: string }) {
               <ul className="space-y-1">
                 {info.equipos.map((e, i) => <li key={i} className="text-sm bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-1.5">{e}</li>)}
               </ul>
+            </div>
+          )}
+
+          {(info.fotos || []).length > 0 && (
+            <div>
+              <div className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider mb-1.5">Fotos de la instalación</div>
+              <div className="grid grid-cols-3 gap-2">
+                {info.fotos!.map((u, i) => (
+                  <a key={i} href={u} target="_blank" rel="noopener noreferrer">
+                    <img src={u} alt={`Foto ${i + 1}`} loading="lazy" className="w-full aspect-square object-cover rounded-lg border border-[#1a2235]" />
+                  </a>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#5a6a80] mt-1">Toca una foto para verla completa.</p>
             </div>
           )}
 

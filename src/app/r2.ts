@@ -84,7 +84,7 @@ async function apiFirma<T>(body: unknown): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export const crearSolicitudFirma = (datos: { codigo: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[] }) =>
+export const crearSolicitudFirma = (datos: { codigo: string; servicioId: string; histId: string; cliente: string; descripcion: string; equipos: string[]; fotos?: string[] }) =>
   apiFirma<{ token: string; expiraEn: string }>({ action: "crear", ...datos });
 
 export type EstadoFirma = { firmado: boolean; firmaKey?: string; firmante?: string; firmadoEn?: string; expirado?: boolean };
