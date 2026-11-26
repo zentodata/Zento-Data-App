@@ -96,7 +96,8 @@ type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "inci
 type ServicioRed = {
   id: string;
   ubicacion?: UbicacionRed; // ubicación donde se creó la instalación
-  ot?: string; // número de orden de trabajo (5 dígitos) que se muestra en PDF y firma codigoCliente: string; clienteNombre: string; clienteTelefono: string;
+  ot?: string; // número de orden de trabajo (5 dígitos) que se muestra en PDF y firma
+  codigoCliente: string; clienteNombre: string; clienteTelefono: string;
   clienteEmail?: string; clienteDireccion?: string; clienteObservaciones?: string;
   tipoServicio: string; proveedor: string; plan: string;
   estado: EstadoRed;
@@ -1529,13 +1530,6 @@ function CatalogoPage({ catalog, setCatalog, showToast, addNotif, fbUrl }: {
               Sin costo
             </label>
           </div>
-          <div className="flex items-center justify-between gap-2 text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
-            <span className={ubicInst ? "text-emerald-400" : "text-[#8090a8]"}>
-              {ubicBuscando ? "📍 Obteniendo ubicación..." : ubicInst ? `📍 Ubicación capturada${ubicInst.precision ? ` (±${ubicInst.precision} m)` : ""}` : "📍 Sin ubicación"}
-            </span>
-            <button type="button" onClick={refrescarUbicacion} disabled={ubicBuscando} className="text-[#0ea5c8] hover:underline disabled:opacity-50">Actualizar</button>
-          </div>
-
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
             <Btn onClick={save}>💾 Guardar</Btn>
@@ -3085,6 +3079,13 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
             <Input placeholder={`Nombre de quien recibe (por defecto: ${form.clienteNombre || "el cliente"})`} value={firmanteInst} onChange={e => setFirmanteInst(e.target.value)} className="mb-2" />
             <SignaturePad value={firmaInst} onChange={setFirmaInst} />
             <p className="text-[10px] text-[#5a6a80] mt-1">Las fotos y el acta firmada quedan adjuntas a este ticket y salen en el PDF. ¿El cliente no está presente? Usa «Guardar y pedir firma por enlace».</p>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
+            <span className={ubicInst ? "text-emerald-400" : "text-[#8090a8]"}>
+              {ubicBuscando ? "📍 Obteniendo ubicación..." : ubicInst ? `📍 Ubicación capturada${ubicInst.precision ? ` (±${ubicInst.precision} m)` : ""}` : "📍 Sin ubicación"}
+            </span>
+            <button type="button" onClick={refrescarUbicacion} disabled={ubicBuscando} className="text-[#0ea5c8] hover:underline disabled:opacity-50">Actualizar</button>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
