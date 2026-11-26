@@ -34,7 +34,9 @@ export default async function handler(req: any, res: any) {
 
   const bucket = process.env.R2_BUCKET;
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  if (!bucket || !projectId) return res.status(500).json({ error: "Servidor sin configurar" });
+  const faltan = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT", "R2_BUCKET"].filter(k => !process.env[k]);
+  if (!projectId) faltan.push("VITE_FIREBASE_PROJECT_ID");
+  if (faltan.length || !bucket || !projectId) return res.status(500).json({ error: "Servidor sin configurar", faltan });
 
   // 1) Solo usuarios con sesión válida de Firebase
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -80,6 +82,8 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: "Acción desconocida" });
   } catch (e) {
     console.error("r2 error", e);
-    return res.status(500).json({ error: "Error en el almacenamiento" });
+    // Solo nombre y mensaje del error (nunca llaves) para poder diagnosticar
+    const err = e as { name?: string; message?: string };
+    return res.status(500).json({ error: "Error en el almacenamiento", detalle: `${err.name || "Error"}: ${String(err.message || "").slice(0, 200)}` });
   }
 }
