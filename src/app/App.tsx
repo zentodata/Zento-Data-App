@@ -70,6 +70,7 @@ type EquipoRed = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
   ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
   garantia?: string;
+  categoria?: "redes" | "camaras"; tipoEquipo?: string; cantidad?: number; marcaOtra?: string;
 };
 type ArchivoRed = { id: string; nombre: string; data: string };
 type HistorialRed = {
@@ -84,6 +85,7 @@ type HistorialRed = {
   documentos?: ArchivoRed[];
   resultado?: string;
   equiposRevisados?: string[];
+  firma?: string; firmante?: string; // acta de entrega firmada (imagen PNG en base64)
 };
 type EstadoRed = "activo" | "pendiente" | "programado" | "mantenimiento" | "incidencia" | "suspendido" | "baja";
 type ServicioRed = {
@@ -222,6 +224,23 @@ const TIPOS_SERVICIO_RED = [
   "Enlace inalámbrico", "VPN", "Red empresarial", "Administración remota",
   "Mantenimiento de red", "Cámaras IP", "NVR", "Otros servicios de infraestructura",
 ];
+const MARCAS_REDES = ["TP-Link", "Ubiquiti", "MikroTik", "Cisco", "D-Link", "Huawei", "Netgear", "ASUS", "Tenda", "Mercusys"];
+const MARCAS_CAMARAS = ["Hikvision", "Dahua", "Uniview", "EZVIZ", "Imou", "TP-Link (Tapo/VIGI)", "Reolink", "Axis", "Hanwha", "Ubiquiti"];
+const TIPOS_EQUIPO_REDES = ["Router", "Switch", "Access Point", "Mesh (Deco / nodo)", "Firewall", "Repetidor", "Antena / Enlace", "Otro"];
+const TIPOS_EQUIPO_CAMARAS = ["Cámara bala", "Cámara domo", "Cámara PTZ", "Cámara WiFi", "DVR / XVR", "NVR", "Otro"];
+const emptyEquipo = (): EquipoRed => ({ id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "", categoria: undefined, tipoEquipo: "", cantidad: 1 });
+const marcaFinal = (e: EquipoRed) => (e.marca === "Otra" ? (e.marcaOtra || "").trim() : e.marca || "");
+function buildDescAuto(tipoServicio: string, equipos: EquipoRed[]): string {
+  const items = equipos.filter(e => e.categoria && (e.modelo.trim() || e.marca)).map(e => {
+    const q = (e.cantidad || 1) > 1 ? `${e.cantidad} ` : "";
+    const t = (e.tipoEquipo && e.tipoEquipo !== "Otro" ? e.tipoEquipo : e.categoria === "camaras" ? "cámara" : "equipo").toLowerCase();
+    return `${q}${t} ${marcaFinal(e)} ${e.modelo.trim()}`.replace(/\s+/g, " ").trim() + (e.ubicacion ? ` (${e.ubicacion})` : "");
+  });
+  if (!items.length) return "";
+  const hayCam = equipos.some(e => e.categoria === "camaras");
+  return `Instalación de ${items.join(", ")}. Se configuró${items.length > 1 ? "n los equipos" : " el equipo"} y se realizaron pruebas de ${hayCam ? "video y " : ""}funcionamiento. Entrega conforme al cliente.`;
+}
+
 const HIST_TIPO_LABELS: Record<HistorialRed["tipo"], string> = {
   instalacion: "Instalación", modificacion: "Modificación", reemplazo: "Reemplazo",
   mantenimiento: "Mantenimiento", incidencia: "Incidencia", baja: "Baja",
@@ -2189,6 +2208,70 @@ function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNo
   );
 }
 
+// Lienzo de firma: funciona con dedo, lápiz táctil y mouse (Pointer Events)
+function SignaturePad({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const drawing = useRef(false);
+  const last = useRef<{ x: number; y: number } | null>(null);
+  const [vacio, setVacio] = useState(!value);
+
+  function blank() {
+    const c = ref.current; if (!c) return;
+    const ctx = c.getContext("2d")!;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height); ctx.restore();
+  }
+  useEffect(() => {
+    const c = ref.current; if (!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = c.offsetWidth * dpr; c.height = c.offsetHeight * dpr;
+    const ctx = c.getContext("2d")!;
+    ctx.scale(dpr, dpr); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0b1220";
+    blank();
+  }, []);
+
+  const pos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const c = ref.current!; const r = c.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (c.offsetWidth / r.width), y: (e.clientY - r.top) * (c.offsetHeight / r.height) };
+  };
+  function down(e: React.PointerEvent<HTMLCanvasElement>) {
+    e.preventDefault(); ref.current!.setPointerCapture(e.pointerId);
+    drawing.current = true; last.current = pos(e);
+    const ctx = ref.current!.getContext("2d")!; const p = last.current;
+    ctx.fillStyle = "#0b1220"; ctx.beginPath(); ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2); ctx.fill();
+  }
+  function move(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current || !last.current) return;
+    e.preventDefault();
+    const ctx = ref.current!.getContext("2d")!; const p = pos(e);
+    ctx.lineWidth = e.pointerType === "pen" && e.pressure > 0 ? 1.2 + e.pressure * 2.4 : 2.4;
+    ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    last.current = p;
+    if (vacio) setVacio(false);
+  }
+  function up() {
+    if (!drawing.current) return;
+    drawing.current = false; last.current = null;
+    setVacio(false);
+    onChange(ref.current!.toDataURL("image/png"));
+  }
+  function limpiar() { blank(); setVacio(true); onChange(null); }
+
+  return (
+    <div>
+      <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-[#1a2235] bg-white" style={{ height: 170 }}>
+        <canvas ref={ref} className="w-full h-full block cursor-crosshair" style={{ touchAction: "none" }}
+          onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} />
+        {vacio && <span className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm pointer-events-none select-none">Firme aquí con el dedo o lápiz</span>}
+        <div className="absolute left-4 right-4 bottom-7 border-b border-slate-300 pointer-events-none" />
+      </div>
+      <div className="flex items-center justify-between mt-1.5">
+        <span className={`text-[11px] font-semibold ${vacio ? "text-[#5a6a80]" : "text-emerald-400"}`}>{vacio ? "Sin firma" : "✓ Firmado"}</span>
+        <button type="button" onClick={limpiar} className="text-[11px] text-[#0ea5c8] hover:underline">Limpiar firma</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── PAGE: REDES (Parte 1 — dashboard + tabla, formularios en la siguiente parte) ──
 
 function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToast, addNotif }: {
@@ -2213,8 +2296,12 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     estado: "activo" as EstadoRed, fechaInstalacion: today(), descripcion: "",
   };
   const [form, setForm] = useState(emptyForm);
-  const [equipos, setEquipos] = useState<EquipoRed[]>([{ id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "" }]);
+  const [equipos, setEquipos] = useState<EquipoRed[]>(() => [emptyEquipo()]);
   const [clienteSugerencias, setClienteSugerencias] = useState(false);
+  const [descManual, setDescManual] = useState(false);
+  const [fotosInst, setFotosInst] = useState<ArchivoRed[]>([]);
+  const [firmaInst, setFirmaInst] = useState<string | null>(null);
+  const [firmanteInst, setFirmanteInst] = useState("");
 
   // Clientes que ya existen en Cotizador/Ventas — alimentan el buscador del
   // formulario, para no tener que crear clientes por separado en Redes.
@@ -2310,21 +2397,33 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
 
   function abrirNuevo() {
     setForm(emptyForm);
-    setEquipos([{ id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "" }]);
+    setEquipos([emptyEquipo()]);
     setTipoOtro(false);
+    setDescManual(false); setFotosInst([]); setFirmaInst(null); setFirmanteInst("");
     setModal(true);
   }
 
-  function addEquipo() { setEquipos([...equipos, { id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "" }]); }
+  // La descripción se arma sola a partir de los equipos, hasta que el técnico la edite a mano
+  useEffect(() => {
+    if (!modal || descManual) return;
+    const auto = buildDescAuto(form.tipoServicio, equipos);
+    setForm(f => f.descripcion === auto ? f : { ...f, descripcion: auto });
+  }, [equipos, form.tipoServicio, modal, descManual]);
+
+  function addEquipo() { setEquipos([...equipos, emptyEquipo()]); }
   function delEquipo(id: string) { setEquipos(equipos.filter(e => e.id !== id)); }
-  function updEquipo(id: string, k: keyof EquipoRed, v: string) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
+  function updEquipo(id: string, k: keyof EquipoRed, v: string | number | undefined) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
 
   function guardar() {
     if (!form.clienteNombre) { showToast("⚠️ El cliente es requerido"); return; }
     if (!form.tipoServicio) { showToast("⚠️ El tipo de servicio es requerido"); return; }
     const codigo = nextCodigoCliente(form.clienteNombre);
     const ahora = new Date().toISOString();
-    const equiposValidos = equipos.filter(e => e.modelo.trim());
+    const incompleto = equipos.find(e => e.categoria && marcaFinal(e) && !e.modelo.trim());
+    if (incompleto) { showToast("⚠️ Falta el modelo de un equipo instalado"); return; }
+    const equiposValidos = equipos
+      .filter(e => e.modelo.trim() || (e.categoria && marcaFinal(e)))
+      .map(e => ({ ...e, marca: marcaFinal(e), marcaOtra: undefined, modelo: e.modelo.trim() || e.tipoEquipo || "" }));
     const nuevo: ServicioRed = {
       id: uid(),
       codigoCliente: codigo,
@@ -2339,6 +2438,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         id: uid(), fecha: form.fechaInstalacion, tipo: "instalacion",
         tecnico: currentUser.nombre,
         descripcion: form.descripcion || `Instalación de ${form.tipoServicio}${equiposValidos.length ? ` — ${equiposValidos.map(e => e.modelo).join(", ")}` : ""}.`,
+        ...(fotosInst.length ? { fotos: fotosInst } : {}),
+        ...(firmaInst ? { firma: firmaInst, firmante: firmanteInst.trim() || form.clienteNombre } : {}),
       }],
       fechaInstalacion: form.fechaInstalacion,
       ultimaModificacion: ahora,
@@ -2432,6 +2533,20 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     } finally {
       setModUploading(false);
     }
+  }
+
+  async function handleFotosInst(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    if (fotosInst.length + files.length > 8) { showToast("⚠️ Máximo 8 fotos por instalación"); return; }
+    setModUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) { showToast(`⚠️ "${file.name}" no es una imagen`); continue; }
+        const data = await compressImage(file);
+        setFotosInst(prev => [...prev, { id: uid(), nombre: file.name, data }]);
+      }
+    } catch { showToast("⚠️ No se pudo procesar una foto"); }
+    finally { setModUploading(false); }
   }
 
   async function handleDocs(files: FileList | null) {
@@ -2679,29 +2794,124 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
 
           <div>
             <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-2">Equipos instalados</label>
-            <div className="space-y-2">
-              {equipos.map(eq => (
-                <div key={eq.id} className="grid grid-cols-[1fr_1fr_1fr_30px] gap-1.5 items-center">
-                  <input value={eq.modelo} onChange={e => updEquipo(eq.id, "modelo", e.target.value)} placeholder="Modelo (ej. Deco S7)"
-                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0" />
-                  <input value={eq.ubicacion || ""} onChange={e => updEquipo(eq.id, "ubicacion", e.target.value)} placeholder="Ubicación"
-                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0" />
-                  <input value={eq.serial || ""} onChange={e => updEquipo(eq.id, "serial", e.target.value)} placeholder="Serial (opc.)"
-                    className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0" />
-                  <button onClick={() => delEquipo(eq.id)} className="text-red-400 hover:bg-red-500/10 rounded p-1.5"><X size={13} /></button>
-                </div>
-              ))}
+            <div className="space-y-3">
+              {equipos.map((eq, idx) => {
+                const cat = eq.categoria;
+                const marcas = cat === "camaras" ? MARCAS_CAMARAS : MARCAS_REDES;
+                const tipos = cat === "camaras" ? TIPOS_EQUIPO_CAMARAS : TIPOS_EQUIPO_REDES;
+                const cls = "w-full bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0";
+                return (
+                  <div key={eq.id} className="rounded-xl border border-[#1a2235] bg-[#080b16] p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-[#8090a8] uppercase tracking-wider">Equipo {idx + 1} · ¿Qué se instaló?</span>
+                      {equipos.length > 1 && <button type="button" onClick={() => delEquipo(eq.id)} className="text-red-400 hover:bg-red-500/10 rounded p-1"><X size={14} /></button>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([["redes", "🌐 Redes"], ["camaras", "📹 Cámaras"]] as const).map(([k, lbl]) => (
+                        <button key={k} type="button"
+                          onClick={() => setEquipos(equipos.map(x => x.id === eq.id ? { ...x, categoria: k, tipoEquipo: "", marca: "", marcaOtra: "", modelo: "" } : x))}
+                          className={`py-2.5 rounded-lg text-sm font-semibold border transition-all ${cat === k ? "bg-[#0ea5c8]/15 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+
+                    {cat && (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">{cat === "camaras" ? "Tipo de cámara" : "Equipo de red"}</label>
+                            <select value={eq.tipoEquipo || ""} onChange={e => updEquipo(eq.id, "tipoEquipo", e.target.value)} className={cls}>
+                              <option value="">Seleccionar...</option>
+                              {tipos.map(t => <option key={t}>{t}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Marca</label>
+                            <select value={eq.marca || ""} onChange={e => updEquipo(eq.id, "marca", e.target.value)} className={cls}>
+                              <option value="">Seleccionar...</option>
+                              {marcas.map(m => <option key={m}>{m}</option>)}
+                              <option value="Otra">Otra...</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {eq.marca === "Otra" && (
+                          <input value={eq.marcaOtra || ""} onChange={e => updEquipo(eq.id, "marcaOtra", e.target.value)} placeholder="Escribe la marca" className={cls} />
+                        )}
+
+                        {eq.marca && (
+                          <div className="grid grid-cols-[1fr_72px] gap-2">
+                            <div>
+                              <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Modelo *</label>
+                              <input value={eq.modelo} onChange={e => updEquipo(eq.id, "modelo", e.target.value)}
+                                placeholder={cat === "camaras" ? "Ej. DS-2CD1023G0E-I" : "Ej. Deco S7, ER605..."} className={cls} />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Cant.</label>
+                              <input type="number" min={1} value={eq.cantidad || 1} onChange={e => updEquipo(eq.id, "cantidad", Math.max(1, parseInt(e.target.value, 10) || 1))} className={cls} />
+                            </div>
+                          </div>
+                        )}
+
+                        {eq.marca && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <input value={eq.ubicacion || ""} onChange={e => updEquipo(eq.id, "ubicacion", e.target.value)} placeholder="Ubicación (ej. entrada)" className={cls} />
+                            <input value={eq.serial || ""} onChange={e => updEquipo(eq.id, "serial", e.target.value)} placeholder={(eq.cantidad || 1) > 1 ? "Seriales (separados por coma)" : "Serial (opc.)"} className={cls} />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <button onClick={addEquipo} className="w-full mt-2 py-1.5 border border-dashed border-[#1a2235] rounded-lg text-[#0ea5c8] text-xs font-semibold hover:border-[#0ea5c8] transition-colors">
-              + Agregar equipo
+            <button type="button" onClick={addEquipo} className="w-full mt-2 py-2 border border-dashed border-[#1a2235] rounded-lg text-[#0ea5c8] text-xs font-semibold hover:border-[#0ea5c8] transition-colors">
+              + Agregar otro equipo
             </button>
           </div>
 
           <div>
-            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Descripción del trabajo</label>
-            <textarea value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} rows={3}
-              placeholder="Se instalaron 3 Deco S7, se configuró la red Mesh, se realizaron pruebas de cobertura..."
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider">Descripción del trabajo</label>
+              {descManual && <button type="button" onClick={() => setDescManual(false)} className="text-[11px] text-[#0ea5c8] hover:underline">↻ Autogenerar</button>}
+            </div>
+            <textarea value={form.descripcion} onChange={e => { setDescManual(true); setForm(f => ({ ...f, descripcion: e.target.value })); }} rows={3}
+              placeholder="Se arma sola al elegir los equipos; también puedes escribirla a mano..."
               className="w-full bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
+          </div>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1.5">Fotos de la instalación ({fotosInst.length}/8)</label>
+            <div className="flex flex-wrap gap-2">
+              {fotosInst.map(f => (
+                <div key={f.id} className="relative w-20 h-20">
+                  <img src={f.data} alt={f.nombre} className="w-full h-full object-cover rounded-lg border border-[#1a2235]" />
+                  <button type="button" onClick={() => setFotosInst(prev => prev.filter(x => x.id !== f.id))}
+                    className="absolute -top-1.5 -right-1.5 bg-[#0b0e1a] border border-[#1a2235] text-red-400 rounded-full p-0.5"><X size={12} /></button>
+                </div>
+              ))}
+              {fotosInst.length < 8 && (
+                <div className="flex gap-2">
+                  <label className="w-20 h-20 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[#1a2235] text-[#0ea5c8] text-[10px] font-semibold cursor-pointer hover:border-[#0ea5c8]">
+                    <span className="text-lg">📷</span>Cámara
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { handleFotosInst(e.target.files); e.target.value = ""; }} />
+                  </label>
+                  <label className="w-20 h-20 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[#1a2235] text-[#0ea5c8] text-[10px] font-semibold cursor-pointer hover:border-[#0ea5c8]">
+                    <span className="text-lg">🖼️</span>Galería
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={e => { handleFotosInst(e.target.files); e.target.value = ""; }} />
+                  </label>
+                </div>
+              )}
+            </div>
+            {modUploading && <p className="text-[11px] text-[#8090a8] mt-1">Procesando fotos...</p>}
+          </div>
+
+          <div>
+            <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1.5">Acta de entrega — firma del cliente</label>
+            <Input placeholder={`Nombre de quien recibe (por defecto: ${form.clienteNombre || "el cliente"})`} value={firmanteInst} onChange={e => setFirmanteInst(e.target.value)} className="mb-2" />
+            <SignaturePad value={firmaInst} onChange={setFirmaInst} />
+            <p className="text-[10px] text-[#5a6a80] mt-1">Las fotos y el acta firmada quedan adjuntas a este ticket y salen en el PDF.</p>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -2795,6 +3005,12 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                           <img src={f.data} alt={f.nombre} className="w-12 h-12 object-cover rounded border border-[#1a2235]" />
                         </a>
                       ))}
+                    </div>
+                  )}
+                  {h.firma && (
+                    <div className="mt-2">
+                      <p className="text-[#8090a8] mb-1">Acta de entrega firmada por {h.firmante || "el cliente"}</p>
+                      <a href={h.firma} target="_blank" rel="noopener noreferrer"><img src={h.firma} alt="Firma" className="h-14 bg-white rounded border border-[#1a2235]" /></a>
                     </div>
                   )}
                   {h.documentos && h.documentos.length > 0 && (

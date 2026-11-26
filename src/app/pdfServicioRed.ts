@@ -6,6 +6,7 @@ type ArchivoRedPDF = { id: string; nombre: string; data: string };
 type EquipoRedPDF = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
   ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string; garantia?: string;
+  categoria?: string; tipoEquipo?: string; cantidad?: number;
 };
 type HistorialRedPDF = {
   id: string; fecha: string;
@@ -15,6 +16,7 @@ type HistorialRedPDF = {
   costo?: number; precioCobrado?: number;
   fotos?: ArchivoRedPDF[]; documentos?: ArchivoRedPDF[];
   resultado?: string; equiposRevisados?: string[];
+  firma?: string; firmante?: string;
 };
 export type ServicioRedPDF = {
   id: string; codigoCliente: string; clienteNombre: string; clienteTelefono: string;
@@ -240,7 +242,7 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
       if (idx % 2 === 0) { doc.setFillColor(246, 248, 251); doc.rect(marginX, y, w, 16, "F"); }
       doc.setFontSize(8.5);
       let cx2 = marginX + 4;
-      const vals = [e.modelo || "-", e.marca || "-", e.ubicacion || "-", e.serial || "-", e.mac || "-"];
+      const vals = [`${(e.cantidad || 1) > 1 ? e.cantidad + "x " : ""}${e.modelo || "-"}`, e.marca || "-", e.ubicacion || "-", e.serial || "-", e.mac || "-"];
       vals.forEach((v, i) => { doc.text(v, cx2, y + 11); cx2 += cW[i]; });
       y += 16;
     });
@@ -351,16 +353,30 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     }
   }
 
-  // ── Firmas de cierre ──
-  ensureSpace(70);
+  // ── Firmas de cierre (acta de entrega firmada en la app, si existe) ──
+  const conFirma = historialOrdenado.slice().reverse().find(h => h.firma);
+  ensureSpace(conFirma ? 130 : 70);
   y += 20;
   const sigW = (pageW - marginX * 2 - 30) / 2;
+  if (conFirma?.firma) {
+    try {
+      const d = await loadImageDims(conFirma.firma);
+      const maxW = sigW - 20, maxH = 60;
+      const k = Math.min(maxW / d.w, maxH / d.h);
+      doc.addImage(conFirma.firma, "PNG", marginX + 10, y + 60 - d.h * k, d.w * k, d.h * k);
+    } catch { /* firma no legible, se omite */ }
+    y += 64;
+  }
   doc.setDrawColor(150, 156, 168);
   doc.line(marginX, y, marginX + sigW, y);
   doc.line(marginX + sigW + 30, y, marginX + sigW * 2 + 30, y);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 100, 120);
-  doc.text("Firma del Cliente", marginX, y + 14);
+  doc.text(conFirma?.firma ? `Firma del Cliente — ${conFirma.firmante || s.clienteNombre}` : "Firma del Cliente", marginX, y + 14);
   doc.text("Firma de Zento Data", marginX + sigW + 30, y + 14);
+  if (conFirma?.firma) {
+    doc.setFontSize(7.5); doc.setTextColor(150, 156, 168);
+    doc.text(`Acta de entrega firmada digitalmente el ${new Date(conFirma.fecha).toLocaleDateString("es-GT")}`, marginX, y + 26);
+  }
 
   // ── Pie de página en todas las hojas ──
   const total = doc.getNumberOfPages();
