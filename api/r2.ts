@@ -10,9 +10,12 @@
 const TIPOS_PERMITIDOS = /^(image\/(jpeg|png|webp|gif)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.[\w.\-]+|application\/vnd\.ms-excel|text\/plain)$/;
 const KEY_VALIDA = /^redes\/[A-Za-z0-9_\-./]{1,200}$/;
 
+// Limpia espacios y saltos de línea que a veces quedan al pegar variables en Vercel
+const env = (k: string) => (process.env[k] || "").trim();
+
 async function s3() {
   const { S3Client } = await import("@aws-sdk/client-s3");
-  const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT } = process.env;
+  const R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID"), R2_SECRET_ACCESS_KEY = env("R2_SECRET_ACCESS_KEY"), R2_ENDPOINT = env("R2_ENDPOINT").replace(/\/+$/, "");
   if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ENDPOINT) throw new Error("R2 no configurado");
   return new S3Client({
     region: "auto",
@@ -29,9 +32,9 @@ export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
 
-  const bucket = process.env.R2_BUCKET;
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  const faltan = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT", "R2_BUCKET"].filter(k => !process.env[k]);
+  const bucket = env("R2_BUCKET");
+  const projectId = env("FIREBASE_PROJECT_ID") || env("VITE_FIREBASE_PROJECT_ID");
+  const faltan = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT", "R2_BUCKET"].filter(k => !env(k));
   if (!projectId) faltan.push("VITE_FIREBASE_PROJECT_ID");
   if (faltan.length || !bucket || !projectId) return res.status(500).json({ error: "Servidor sin configurar", faltan });
 
