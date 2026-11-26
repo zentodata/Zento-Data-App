@@ -4,17 +4,14 @@
 // Variables de entorno requeridas en Vercel:
 //   R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT, R2_BUCKET
 //   (usa VITE_FIREBASE_PROJECT_ID o FIREBASE_PROJECT_ID para validar el login)
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createRemoteJWKSet, jwtVerify } from "jose";
-import { randomUUID } from "node:crypto";
-
-const JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"));
+// Los módulos se cargan dentro del handler (import dinámico) para que, si falta alguna
+// dependencia en el despliegue, la respuesta diga cuál en vez de un 500 genérico.
 
 const TIPOS_PERMITIDOS = /^(image\/(jpeg|png|webp|gif)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.[\w.\-]+|application\/vnd\.ms-excel|text\/plain)$/;
 const KEY_VALIDA = /^redes\/[A-Za-z0-9_\-./]{1,200}$/;
 
-function s3() {
+async function s3() {
+  const { S3Client } = await import("@aws-sdk/client-s3");
   const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT } = process.env;
   if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ENDPOINT) throw new Error("R2 no configurado");
   return new S3Client({
@@ -38,6 +35,19 @@ export default async function handler(req: any, res: any) {
   if (!projectId) faltan.push("VITE_FIREBASE_PROJECT_ID");
   if (faltan.length || !bucket || !projectId) return res.status(500).json({ error: "Servidor sin configurar", faltan });
 
+  let mods;
+  try {
+    const [aws, presigner, jose, crypto] = await Promise.all([
+      import("@aws-sdk/client-s3"), import("@aws-sdk/s3-request-presigner"), import("jose"), import("node:crypto"),
+    ]);
+    mods = { ...aws, ...presigner, ...jose, randomUUID: crypto.randomUUID };
+  } catch (e) {
+    const err = e as { message?: string };
+    return res.status(500).json({ error: "Faltan dependencias en el servidor", detalle: String(err.message || "").slice(0, 200) });
+  }
+  const { PutObjectCommand, GetObjectCommand, DeleteObjectCommand, getSignedUrl, createRemoteJWKSet, jwtVerify, randomUUID } = mods;
+  const JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"));
+
   // 1) Solo usuarios con sesión válida de Firebase
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (!token) return res.status(401).json({ error: "Sin sesión" });
@@ -49,7 +59,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
-    const client = s3();
+    const client = await s3();
 
     if (body.action === "put") {
       const contentType = String(body.contentType || "");
