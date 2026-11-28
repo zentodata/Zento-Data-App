@@ -23,6 +23,7 @@ import { AVISOS_WA, avisoDeEstado, mensajeWhatsapp, type TipoAviso } from "@/app
 import { ORDEN_LABEL, ORDEN_ESTADOS_TODOS, ORDEN_SIN_EJECUTAR, ORDEN_PERMITE_BITACORA, pasosDeOrden, comoLlegarUrl, waUrl,
   buildDescTecnica, equipoCompleto, equipoIncompleto, cerrarEquipo, aplicarEstadoOrden, mezclarRedes, tieneCredenciales, CATEGORIAS } from "@/app/redesCatalogo";
 import { EquipoEditor } from "@/app/EquipoEditor";
+import { agendaItems, garantias, grupoDe, hoyStr, sumarDias, mensajeMant, mensajeGarantia, GRUPOS, GARANTIA_DEFAULT_MESES, FRECUENCIA_DEFAULT_DIAS, diasHasta, type ItemAgenda, type GrupoAgenda } from "@/app/mantenimiento";
 import { logEvento, setLogUsuario, logsLocales, refrescarLogs, vaciarLogs, onLogsChange, type LogEntry } from "@/app/logger";
 import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, borrarArchivo, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma, firmaAutorizada } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
@@ -68,9 +69,10 @@ type Venta = {
 type ItemInv = { id: string; nombre: string; stock: number; minimo: number; precio: number };
 type Gasto = { id: string; fecha: string; categoria: string; monto: number; descripcion: string };
 type Pago = { id: string; cliente: string; total: number; recibido: number; tipo: "cobrar" | "pagar" };
-type Mant = {
+export type Mant = {
   id: string; equipo: string; tipo: string; fechaProxima: string;
   proveedor: string; notas: string; frecuenciaDias: number; completado: boolean;
+  cliente?: string; telefono?: string; ultima?: string; hechos?: number; // cliente al que se le da el servicio y seguimiento
 };
 
 // ── Redes ──
@@ -121,6 +123,7 @@ export type ServicioRed = {
   borrador?: BorradorOrden;
   bitacora?: BitacoraOrden[]; // observaciones / incidencias / reasignaciones
   firmaTecnico?: string; firmaTecnicoKey?: string; firmaTecnicoAut?: boolean; // firma del técnico en el acta
+  garantiaMeses?: number; frecuenciaMantDias?: number; // garantía de la instalación y cada cuántos días toca mantenimiento
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
@@ -213,7 +216,6 @@ const ls = <T,>(k: string, def: T): T => { try { const d = localStorage.getItem(
 // los datos siguen en memoria y en la nube.
 const lsSet = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 const today = () => new Date().toISOString().split("T")[0];
-const diasHasta = (fecha: string) => Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000);
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -2060,112 +2062,259 @@ function LogsPage({ showToast }: { showToast: (m: string) => void }) {
 
 // ─── PAGE: MANTENIMIENTO ──────────────────────────────────────────────────────
 
-function MantenimientoPage({ mantenimientos, setMantenimientos, showToast, addNotif }: {
-  mantenimientos: Mant[]; setMantenimientos: (m: Mant[]) => void; showToast: (m: string) => void;
-  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
+function MantenimientoPage({ mantenimientos, setMantenimientos, redes, setRedes, currentUser, showToast, addNotif, onAgendar }: {
+  mantenimientos: Mant[]; setMantenimientos: (m: Mant[]) => void; redes: ServicioRed[]; setRedes: (r: ServicioRed[]) => void; currentUser: User;
+  showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
+  onAgendar: (d: { cliente: string; telefono: string; direccion: string; tipoServicio: string; notas: string; fecha: string; codigoCliente?: string }) => void;
 }) {
+  const [tab, setTab] = useState<"agenda" | "garantias" | "manuales">("agenda");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ equipo: "", tipo: MANT_TIPOS[0], fechaProxima: today(), proveedor: "", notas: "", frecuenciaDias: 30, completado: false });
+  const [agendar, setAgendar] = useState<{ it: ItemAgenda; fecha: string; notas: string } | null>(null);
+  const [q, setQ] = useState("");
+  const formVacio = { equipo: "", tipo: MANT_TIPOS[0], fechaProxima: today(), proveedor: "", notas: "", frecuenciaDias: 30, completado: false, cliente: "", telefono: "" };
+  const [form, setForm] = useState(formVacio);
+  const mantRef = useRef(mantenimientos); mantRef.current = mantenimientos;
+  const redesRef2 = useRef(redes); redesRef2.current = redes;
+
+  const items = agendaItems(redes, mantenimientos);
+  const gars = garantias(redes);
+  const cuenta = (g: GrupoAgenda) => items.filter(i => i.grupo === g).length;
+  const garPorVencer = gars.filter(g => g.estado === "por_vencer").length;
+  const clientes = Array.from(new Map(redes.map(r => [r.clienteNombre.toLowerCase(), { n: r.clienteNombre, t: r.clienteWhatsapp || r.clienteTelefono }])).values());
+
+  const guardarManuales = (next: Mant[]) => { setMantenimientos(next); persist("zMant", next); };
+
+  /** Cambia un servicio de Redes partiendo de lo último de la nube (no pisa lo que haya guardado el técnico) */
+  async function editarSv(id: string, fn: (r: ServicioRed) => ServicioRed) {
+    let base = redesRef2.current;
+    try { const cloud = await fetchCloud<ServicioRed[]>("zRedes"); if (cloud) base = mezclarRedes(base, normRedes(cloud)); } catch { /* sin conexión */ }
+    const next = base.map(r => r.id === id ? { ...fn(r), ultimaModificacion: new Date().toISOString() } : r);
+    setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+  }
 
   function save() {
-    if (!form.equipo) { showToast("⚠️ El equipo es requerido"); return; }
-    const m: Mant = { id: uid(), ...form };
-    const next = [m, ...mantenimientos];
-    setMantenimientos(next); persist("zMant", next); setModal(false);
-    const dias = Math.ceil((new Date(m.fechaProxima).getTime() - Date.now()) / 86400000);
-    if (dias <= 7) addNotif({ tipo: "warning", titulo: "Mantenimiento próximo", mensaje: `${m.equipo} — ${m.tipo} en ${dias} día(s)`, modulo: "mantenimiento" });
+    if (!form.equipo.trim()) { showToast("⚠️ Escribe el equipo o el motivo"); return; }
+    guardarManuales([{ id: uid(), ...form, equipo: form.equipo.trim() }, ...mantenimientos]);
+    setModal(false); setForm(formVacio);
+    const dias = diasHasta(form.fechaProxima);
+    if (dias <= 7) addNotif({ tipo: "warning", titulo: "Mantenimiento próximo", mensaje: `${form.equipo} — ${form.tipo} ${dias < 0 ? "vencido" : `en ${dias} día(s)`}`, modulo: "mantenimiento" });
     showToast("✅ Recordatorio guardado");
   }
 
-  const hoy = new Date();
-  const proximos = mantenimientos.filter(m => !m.completado && new Date(m.fechaProxima) <= new Date(hoy.getTime() + 7 * 86400000));
+  async function hecho(it: ItemAgenda) {
+    const hoy = hoyStr();
+    if (it.sv) {
+      const frec = it.sv.frecuenciaMantDias || FRECUENCIA_DEFAULT_DIAS;
+      await editarSv(it.sv.id, r => ({
+        ...r, fechaUltimoMant: hoy, fechaProximoMant: sumarDias(hoy, frec),
+        historial: [...r.historial, { id: uid(), fecha: hoy, tipo: "mantenimiento" as const, tecnico: currentUser.nombre, descripcion: "Mantenimiento preventivo realizado (registrado desde la agenda de Mantenimiento).", motivo: "Mantenimiento programado" }],
+      }));
+      showToast(`✅ Mantenimiento registrado · próximo ${sumarDias(hoy, frec)}`);
+      addNotif({ tipo: "success", titulo: "Mantenimiento realizado", mensaje: `${it.cliente} — ${it.titulo}`, modulo: "mantenimiento" });
+    } else if (it.mant) {
+      const m = it.mant;
+      guardarManuales(mantRef.current.map(x => x.id !== m.id ? x : m.frecuenciaDias > 0
+        ? { ...x, ultima: hoy, hechos: (x.hechos || 0) + 1, fechaProxima: sumarDias(hoy, m.frecuenciaDias) } : { ...x, completado: true, ultima: hoy, hechos: (x.hechos || 0) + 1 }));
+      showToast(m.frecuenciaDias > 0 ? `✅ Hecho · se reprogramó para ${sumarDias(hoy, m.frecuenciaDias)}` : "✅ Marcado como completado");
+    }
+  }
+  async function posponer(it: ItemAgenda, dias = 7) {
+    const desde = it.fecha && it.dias! > 0 ? it.fecha : hoyStr();
+    const nueva = sumarDias(desde, dias);
+    if (it.sv) await editarSv(it.sv.id, r => ({ ...r, fechaProximoMant: nueva }));
+    else if (it.mant) guardarManuales(mantRef.current.map(x => x.id === it.mant!.id ? { ...x, fechaProxima: nueva } : x));
+    showToast(`⏳ Pospuesto al ${nueva}`);
+  }
+  async function programar(it: ItemAgenda) {
+    if (!it.sv || !it.sugerida) return;
+    const f = it.sugerida < hoyStr() ? sumarDias(hoyStr(), 7) : it.sugerida;
+    await editarSv(it.sv.id, r => ({ ...r, fechaProximoMant: f }));
+    showToast(`📅 Mantenimiento programado para ${f}`);
+  }
+  function confirmarAgenda() {
+    if (!agendar) return;
+    const { it, fecha, notas } = agendar;
+    if (!fecha) { showToast("⚠️ Elige fecha y hora"); return; }
+    onAgendar({ cliente: it.sv?.clienteNombre || it.mant?.cliente || it.cliente, telefono: it.telefono || "", direccion: it.sv?.direccion || it.sv?.clienteDireccion || "", tipoServicio: "Mantenimiento de red", notas: [it.titulo, notas].filter(Boolean).join(" · "), fecha, codigoCliente: it.sv?.codigoCliente });
+    setAgendar(null);
+  }
+  const wa = (tel: string | undefined, msg: string) => (telDigitos(tel || "") ? waUrl(tel!, msg) : undefined);
+  const ahoraLoc = () => { const d = new Date(Date.now() + 86400000); d.setHours(9, 0, 0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const filtrar = (i: ItemAgenda) => !q || (i.cliente + " " + i.titulo + " " + (i.detalle || "")).toLowerCase().includes(q.toLowerCase());
+  const tabBtn = (id: typeof tab, label: string, n?: number) => (
+    <button onClick={() => setTab(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${tab === id ? "bg-[#0ea5c8]/15 border-[#0ea5c8] text-[#0ea5c8]" : "border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
+      {label}{n ? <span className="ml-1.5 px-1.5 rounded bg-[#1a2235] text-[10px] text-white">{n}</span> : null}
+    </button>
+  );
+  const btnMini = "px-2 py-1 rounded-lg text-[11px] font-semibold border";
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div><h2 className="text-xl font-black text-white">Mantenimiento</h2><p className="text-sm text-[#8090a8] mt-0.5">Recordatorios de mantenimiento de equipos</p></div>
-        <Btn onClick={() => setModal(true)}><Plus size={14} /> Nuevo Recordatorio</Btn>
+    <div className="max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div><h2 className="text-xl font-black text-white">Mantenimiento y garantías</h2><p className="text-sm text-[#8090a8] mt-0.5">Agenda automática desde tus servicios de Redes + recordatorios manuales</p></div>
+        <Btn onClick={() => { setForm(formVacio); setModal(true); }}><Plus size={14} /> Nuevo recordatorio</Btn>
       </div>
 
-      {proximos.length > 0 && (
-        <div className="mb-4 p-4 bg-yellow-400/10 border border-yellow-400/20 rounded-xl flex gap-3 items-start">
-          <AlertTriangle size={16} className="text-yellow-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="text-sm font-bold text-yellow-300">{proximos.length} mantenimiento(s) próximo(s) esta semana</div>
-            <div className="text-xs text-yellow-400/70 mt-1">{proximos.map(m => m.equipo).join(" · ")}</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <StatCard label="Vencidos" value={cuenta("vencido")} color={cuenta("vencido") ? "#f87171" : "#8090a8"} />
+        <StatCard label="Esta semana" value={cuenta("semana")} color="#f59e0b" />
+        <StatCard label="Este mes" value={cuenta("mes")} color="#eab308" />
+        <StatCard label="Garantías por vencer" value={garPorVencer} color={garPorVencer ? "#f59e0b" : "#8090a8"} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        {tabBtn("agenda", "📅 Agenda", items.length)}{tabBtn("garantias", "🛡️ Garantías", gars.length)}{tabBtn("manuales", "📝 Recordatorios manuales", mantenimientos.length)}
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cliente o equipo..." className="ml-auto bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#0ea5c8] min-w-[160px]" />
+      </div>
+
+      {tab === "agenda" && (
+        items.filter(filtrar).length === 0 ? <Card><EmptyState icon="🔧" msg="Sin mantenimientos pendientes. Programa uno desde los servicios de Redes o crea un recordatorio." /></Card> : (
+          <div className="space-y-4">
+            {GRUPOS.map(g => {
+              const lista = items.filter(i => i.grupo === g.id && filtrar(i));
+              if (!lista.length) return null;
+              return (
+                <div key={g.id}>
+                  <div className={`text-xs font-bold uppercase tracking-wider mb-1.5 ${g.cls}`}>{g.label} · {lista.length}</div>
+                  <div className="space-y-1.5">
+                    {lista.map(it => (
+                      <div key={it.key} className="bg-[#0b0e1a] border border-[#1a2235] rounded-xl px-3 py-2.5">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-white">{it.cliente} <span className="text-[10px] font-normal text-[#5a6a80] ml-1">{it.origen === "red" ? "servicio" : "recordatorio"}</span></div>
+                            <div className="text-xs text-[#c8d8e8]">{it.titulo}{it.detalle && it.origen === "red" ? <span className="text-[#8090a8]"> · {it.detalle}</span> : null}</div>
+                            {it.origen === "manual" && it.detalle && <div className="text-[11px] text-[#8090a8]">{it.detalle}</div>}
+                          </div>
+                          <div className="text-right shrink-0">
+                            {it.fecha ? (<><div className="text-xs text-white">{it.fecha}</div>
+                              <div className={`text-[10px] font-semibold ${it.dias! < 0 ? "text-red-400" : it.dias! <= 7 ? "text-amber-400" : "text-[#8090a8]"}`}>{it.dias! < 0 ? `vencido hace ${-it.dias!}d` : it.dias === 0 ? "hoy" : `en ${it.dias}d`}</div></>)
+                              : <div className="text-[10px] text-[#8090a8]">sugerido {it.sugerida}</div>}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {it.grupo === "sin_programar" ? (
+                            <button onClick={() => programar(it)} className={`${btnMini} border-[#0ea5c8]/40 text-[#0ea5c8] hover:bg-[#0ea5c8]/10`}>📅 Programar para {it.sugerida! < hoyStr() ? "la próxima semana" : it.sugerida}</button>
+                          ) : (
+                            <>
+                              <button onClick={() => hecho(it)} className={`${btnMini} border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10`}>✅ Hecho</button>
+                              <button onClick={() => setAgendar({ it, fecha: ahoraLoc(), notas: "" })} className={`${btnMini} border-violet-500/40 text-violet-300 hover:bg-violet-500/10`}>📋 Agendar visita (OT)</button>
+                              <button onClick={() => posponer(it)} className={`${btnMini} border-[#1a2235] text-[#8090a8] hover:text-white`}>⏳ +7 días</button>
+                            </>
+                          )}
+                          {wa(it.telefono, mensajeMant(it, currentUser.nombre)) && (
+                            <a href={wa(it.telefono, mensajeMant(it, currentUser.nombre))} target="_blank" rel="noopener noreferrer" className={`${btnMini} border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10`}>💬 Recordar al cliente</a>
+                          )}
+                          {it.mant && <button onClick={() => { if (confirm("¿Eliminar este recordatorio?")) { guardarManuales(mantenimientos.filter(x => x.id !== it.mant!.id)); showToast("🗑️ Eliminado"); } }} className={`${btnMini} border-red-500/30 text-red-400 hover:bg-red-500/10 ml-auto`}>🗑️</button>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )
       )}
 
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <StatCard label="Total" value={mantenimientos.length} />
-        <StatCard label="Pendientes" value={mantenimientos.filter(m => !m.completado).length} color="#f59e0b" />
-        <StatCard label="Completados" value={mantenimientos.filter(m => m.completado).length} color="#10b981" />
-      </div>
+      {tab === "garantias" && (
+        <Card>
+          {gars.length === 0 ? <EmptyState icon="🛡️" msg="Aún no hay instalaciones con equipos registradas" /> : (
+            <div className="space-y-2">
+              <p className="text-[11px] text-[#8090a8]">La garantía corre desde la fecha de instalación (estándar {GARANTIA_DEFAULT_MESES} meses). Ajusta el plazo y cada cuánto toca mantenimiento por servicio.</p>
+              {gars.filter(g => !q || (g.sv.clienteNombre + g.sv.tipoServicio).toLowerCase().includes(q.toLowerCase())).map(g => {
+                const color = g.estado === "vencida" ? "text-red-300 bg-red-500/10 border-red-500/30" : g.estado === "por_vencer" ? "text-amber-300 bg-amber-500/10 border-amber-500/30" : g.estado === "sin" ? "text-[#8090a8] bg-[#1a2235]/50 border-[#1a2235]" : "text-emerald-300 bg-emerald-500/10 border-emerald-500/30";
+                const sel = "bg-[#060810] border border-[#1a2235] rounded px-1.5 py-0.5 text-[11px] text-white";
+                return (
+                  <div key={g.sv.id} className="bg-[#060810] border border-[#1a2235] rounded-xl px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white">{g.sv.clienteNombre} <span className="text-[10px] font-normal text-[#5a6a80]">{otLabel(g.sv)}</span></div>
+                        <div className="text-xs text-[#8090a8]">{g.sv.tipoServicio} · instalado {g.inicio} · {g.sv.equipos.length} equipo(s)</div>
+                      </div>
+                      <Badge className={color}>{g.estado === "sin" ? "Sin garantía" : g.estado === "vencida" ? `Venció ${g.fin}` : g.estado === "por_vencer" ? `Vence en ${g.dias}d (${g.fin})` : `Vigente hasta ${g.fin}`}</Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-[#8090a8]">
+                      <label>Garantía <select className={sel} value={g.meses} onChange={e => editarSv(g.sv.id, r => ({ ...r, garantiaMeses: +e.target.value }))}>{[0, 3, 6, 12, 24, 36].map(m => <option key={m} value={m}>{m === 0 ? "ninguna" : `${m} meses`}</option>)}</select></label>
+                      <label>Mantenimiento cada <select className={sel} value={g.sv.frecuenciaMantDias || FRECUENCIA_DEFAULT_DIAS} onChange={e => editarSv(g.sv.id, r => ({ ...r, frecuenciaMantDias: +e.target.value }))}>{[90, 180, 365].map(d => <option key={d} value={d}>{d === 90 ? "3 meses" : d === 180 ? "6 meses" : "1 año"}</option>)}</select></label>
+                      {telDigitos(g.sv.clienteWhatsapp || g.sv.clienteTelefono) && g.estado !== "vigente" && g.estado !== "sin" && (
+                        <a href={waUrl(g.sv.clienteWhatsapp || g.sv.clienteTelefono, mensajeGarantia(g))} target="_blank" rel="noopener noreferrer" className={`${btnMini} border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 ml-auto`}>💬 Ofrecer revisión / plan</a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
 
-      <Card>
-        {mantenimientos.length === 0 ? <EmptyState icon="🔧" msg="Sin recordatorios de mantenimiento" /> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
-              <thead><tr className="border-b border-[#1a2235]">
-                {["Equipo","Tipo","Próximo","Proveedor","Notas","Estado",""].map(h => (
-                  <th key={h} className="text-left py-2 px-2 text-[10px] font-bold text-[#8090a8] uppercase">{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {mantenimientos.map(m => {
-                  const dias = Math.ceil((new Date(m.fechaProxima).getTime() - Date.now()) / 86400000);
-                  const urgente = !m.completado && dias <= 7;
-                  return (
-                    <tr key={m.id} className={`border-b border-[#0f1220] hover:bg-[#0a0d1a] group ${urgente ? "bg-yellow-400/5" : ""}`}>
-                      <td className="py-2.5 px-2 text-sm font-medium text-white">{m.equipo}</td>
-                      <td className="py-2.5 px-2 text-xs text-[#c8d8e8]">{m.tipo}</td>
-                      <td className="py-2.5 px-2">
-                        <div className="text-xs text-white">{m.fechaProxima}</div>
-                        {!m.completado && <div className={`text-[10px] ${dias <= 0 ? "text-red-400" : dias <= 7 ? "text-yellow-400" : "text-[#8090a8]"}`}>{dias <= 0 ? "Vencido" : `en ${dias}d`}</div>}
-                      </td>
-                      <td className="py-2.5 px-2 text-xs text-[#8090a8]">{m.proveedor || "—"}</td>
-                      <td className="py-2.5 px-2 text-xs text-[#8090a8] max-w-[100px] truncate">{m.notas || "—"}</td>
-                      <td className="py-2.5 px-2">
-                        <button onClick={() => { const next = mantenimientos.map(x => x.id === m.id ? { ...x, completado: !x.completado } : x); setMantenimientos(next); persist("zMant", next); }}>
-                          <Badge className={m.completado ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20 cursor-pointer" : "text-yellow-400 bg-yellow-400/10 border-yellow-400/20 cursor-pointer"}>
-                            {m.completado ? "Completado" : "Pendiente"}
-                          </Badge>
-                        </button>
-                      </td>
-                      <td className="py-2.5 px-2 text-right">
-                        <button onClick={() => { if (confirm("¿Eliminar?")) { const n = mantenimientos.filter(x => x.id !== m.id); setMantenimientos(n); persist("zMant", n); showToast("🗑️ Eliminado"); } }}
-                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      {tab === "manuales" && (
+        <Card>
+          {mantenimientos.length === 0 ? <EmptyState icon="🔧" msg="Sin recordatorios manuales" /> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px]">
+                <thead><tr className="border-b border-[#1a2235]">{["Cliente / Equipo", "Tipo", "Próximo", "Frecuencia", "Hechos", "Estado", ""].map(h => <th key={h} className="text-left py-2 px-2 text-[10px] font-bold text-[#8090a8] uppercase">{h}</th>)}</tr></thead>
+                <tbody>
+                  {mantenimientos.filter(m => !q || (m.equipo + (m.cliente || "")).toLowerCase().includes(q.toLowerCase())).map(m => {
+                    const dias = diasHasta(m.fechaProxima);
+                    return (
+                      <tr key={m.id} className={`border-b border-[#0f1220] hover:bg-[#0a0d1a] group ${!m.completado && dias <= 7 ? "bg-yellow-400/5" : ""}`}>
+                        <td className="py-2.5 px-2"><div className="text-sm font-medium text-white">{m.equipo}</div>{m.cliente && <div className="text-[10px] text-[#8090a8]">{m.cliente}</div>}</td>
+                        <td className="py-2.5 px-2 text-xs text-[#c8d8e8]">{m.tipo}</td>
+                        <td className="py-2.5 px-2"><div className="text-xs text-white">{m.fechaProxima}</div>{!m.completado && <div className={`text-[10px] ${dias < 0 ? "text-red-400" : dias <= 7 ? "text-yellow-400" : "text-[#8090a8]"}`}>{dias < 0 ? "Vencido" : `en ${dias}d`}</div>}</td>
+                        <td className="py-2.5 px-2 text-xs text-[#8090a8]">{m.frecuenciaDias > 0 ? `cada ${m.frecuenciaDias}d` : "una vez"}</td>
+                        <td className="py-2.5 px-2 text-xs text-[#8090a8]">{m.hechos || 0}{m.ultima ? ` · ${m.ultima}` : ""}</td>
+                        <td className="py-2.5 px-2">
+                          {m.completado
+                            ? <button onClick={() => guardarManuales(mantenimientos.map(x => x.id === m.id ? { ...x, completado: false } : x))}><Badge className="text-emerald-400 bg-emerald-400/10 border-emerald-400/20 cursor-pointer">Completado</Badge></button>
+                            : <button onClick={() => hecho({ key: "m" + m.id, origen: "manual", cliente: m.equipo, titulo: m.tipo, fecha: m.fechaProxima, dias, grupo: grupoDe(dias), mant: m })}><Badge className="text-yellow-400 bg-yellow-400/10 border-yellow-400/20 cursor-pointer">Marcar hecho</Badge></button>}
+                        </td>
+                        <td className="py-2.5 px-2 text-right"><button onClick={() => { if (confirm("¿Eliminar?")) { guardarManuales(mantenimientos.filter(x => x.id !== m.id)); showToast("🗑️ Eliminado"); } }} className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-red-400 hover:bg-red-500/10 rounded"><Trash2 size={12} /></button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nuevo Recordatorio">
+      <Modal open={modal} onClose={() => setModal(false)} title="Nuevo recordatorio" persistent>
         <div className="space-y-3">
-          <Input label="Cámara / Equipo *" value={form.equipo} onChange={e => setForm(f => ({ ...f, equipo: e.target.value }))} />
-          <Select label="Tipo de Mantenimiento" value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-            {MANT_TIPOS.map(t => <option key={t}>{t}</option>)}
-          </Select>
+          <div>
+            <Input label="Cliente (opcional)" list="clientes-mant" value={form.cliente} placeholder="Escribe para buscar..."
+              onChange={e => { const v = e.target.value; const k = clientes.find(c => c.n.toLowerCase() === v.toLowerCase()); setForm(f => ({ ...f, cliente: v, telefono: k?.t || f.telefono })); }} />
+            <datalist id="clientes-mant">{clientes.map(c => <option key={c.n} value={c.n} />)}</datalist>
+          </div>
+          <Input label="Equipo o motivo *" value={form.equipo} onChange={e => setForm(f => ({ ...f, equipo: e.target.value }))} placeholder="Ej. DVR Hikvision 8 canales" />
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Próximo Mantenimiento" type="date" value={form.fechaProxima} onChange={e => setForm(f => ({ ...f, fechaProxima: e.target.value }))} />
-            <Select label="Proveedor" value={form.proveedor} onChange={e => setForm(f => ({ ...f, proveedor: e.target.value }))}>
-              <option value="">— Seleccionar —</option>
-              {PROVEEDORES.map(p => <option key={p}>{p}</option>)}
+            <Select label="Tipo de mantenimiento" value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>{MANT_TIPOS.map(t => <option key={t}>{t}</option>)}</Select>
+            <Input label="WhatsApp del cliente" value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} placeholder="5555-1234" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Próximo mantenimiento" type="date" value={form.fechaProxima} onChange={e => setForm(f => ({ ...f, fechaProxima: e.target.value }))} />
+            <Select label="Se repite" value={String(form.frecuenciaDias)} onChange={e => setForm(f => ({ ...f, frecuenciaDias: +e.target.value }))}>
+              <option value="0">Una sola vez</option><option value="30">Cada mes</option><option value="90">Cada 3 meses</option><option value="180">Cada 6 meses</option><option value="365">Cada año</option>
             </Select>
           </div>
-          <Input label="Frecuencia (días)" type="number" min="1" value={form.frecuenciaDias} onChange={e => setForm(f => ({ ...f, frecuenciaDias: +e.target.value }))} />
+          <Select label="Proveedor / responsable" value={form.proveedor} onChange={e => setForm(f => ({ ...f, proveedor: e.target.value }))}>
+            <option value="">— Seleccionar —</option>{PROVEEDORES.map(p => <option key={p}>{p}</option>)}
+          </Select>
           <Textarea label="Notas" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
-            <Btn onClick={save}>💾 Guardar</Btn>
-          </div>
+          <div className="flex justify-end gap-2 pt-2"><Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn><Btn onClick={save}>💾 Guardar</Btn></div>
         </div>
+      </Modal>
+
+      <Modal open={!!agendar} onClose={() => setAgendar(null)} title="Agendar visita de mantenimiento" width="max-w-sm" persistent>
+        {agendar && (
+          <div className="space-y-3">
+            <p className="text-xs text-[#8090a8]">Se crea una orden de trabajo para <span className="text-white font-semibold">{agendar.it.cliente}</span> y aparece en la app del técnico.</p>
+            <Input label="Fecha y hora *" type="datetime-local" value={agendar.fecha} onChange={e => setAgendar(a => a && { ...a, fecha: e.target.value })} />
+            <Input label="Notas para el técnico" value={agendar.notas} onChange={e => setAgendar(a => a && { ...a, notas: e.target.value })} placeholder="Ej. limpiar lentes y revisar disco" />
+            <div className="flex justify-end gap-2"><Btn variant="ghost" onClick={() => setAgendar(null)}>Cancelar</Btn><Btn onClick={confirmarAgenda}>📋 Crear orden</Btn></div>
+          </div>
+        )}
       </Modal>
     </div>
   );
@@ -4052,33 +4201,56 @@ export default function App() {
 
   useEffect(() => { setLogUsuario(currentUser?.nombre || ""); }, [currentUser]);
 
-  // Cotización → Orden de trabajo en un clic (queda asignada para mañana 9:00; se ajusta desde la ficha)
-  async function crearOTDesdeCotizacion(c: Cotizacion) {
-    const ya = redes.find(r => r.cotizacionId === c.id);
-    if (ya && !confirm(`${c.id} ya tiene la orden ${otLabel(ya)}.\n\n¿Crear otra orden de todos modos?`)) return;
+  // Crea una OT asignada (desde una cotización, desde Mantenimiento, etc.) y lleva a Redes
+  async function crearOT(d: { cliente: string; telefono: string; direccion: string; tipoServicio: string; notas: string; fecha: string; codigoCliente?: string; cotizacionId?: string }) {
     let base = redes;
     try { const cloud = await fetchCloud<ServicioRed[]>("zRedes"); if (cloud) base = mezclarRedes(base, normRedes(cloud)); } catch { /* sin conexión */ }
-    const manana = new Date(Date.now() + 86400000); manana.setHours(9, 0, 0, 0);
-    const fecha = new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const existente = base.find(r => r.clienteNombre.toLowerCase() === c.cliente.toLowerCase());
+    const existente = base.find(r => (d.codigoCliente && r.codigoCliente === d.codigoCliente) || r.clienteNombre.toLowerCase() === d.cliente.toLowerCase());
     const nums = base.map(r => parseInt(r.codigoCliente.replace("ZD-", ""), 10)).filter(n => !isNaN(n));
     const codigo = existente ? existente.codigoCliente : `ZD-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
-    const materiales = (c.items || []).map(i => `${i.qty}× ${i.nombre}`).join(", ");
+    const tel = d.telefono || existente?.clienteWhatsapp || existente?.clienteTelefono || "";
     const nuevo: ServicioRed = {
       id: uid(), ot: genOT(new Set(base.map(r => r.ot).filter((x): x is string => !!x))), codigoCliente: codigo,
-      clienteNombre: c.cliente, clienteTelefono: c.whatsapp || existente?.clienteTelefono || "", clienteWhatsapp: c.whatsapp || existente?.clienteTelefono || "",
-      direccion: c.ubicacion || existente?.clienteDireccion || existente?.direccion || "",
-      tipoServicio: c.servicio || c.proyecto || "Otros servicios de infraestructura", proveedor: "", plan: "", estado: "programado",
-      equipos: [], historial: [], fechaInstalacion: fecha.slice(0, 10), ultimaModificacion: new Date().toISOString(),
-      estadoOrden: "asignada", fechaProgramada: fecha, cotizacionId: c.id, tecnicoAsignado: currentUser?.nombre || "",
-      notasOrden: [c.proyecto, materiales && `Materiales cotizados: ${materiales}`].filter(Boolean).join(" · ") || undefined,
+      clienteNombre: d.cliente, clienteTelefono: tel, clienteWhatsapp: tel,
+      direccion: d.direccion || existente?.direccion || existente?.clienteDireccion || "",
+      tipoServicio: d.tipoServicio, proveedor: "", plan: "", estado: "programado",
+      equipos: [], historial: [], fechaInstalacion: d.fecha.slice(0, 10), ultimaModificacion: new Date().toISOString(),
+      estadoOrden: "asignada", fechaProgramada: d.fecha, cotizacionId: d.cotizacionId, tecnicoAsignado: currentUser?.nombre || "",
+      notasOrden: d.notas || undefined,
     };
     const next = [nuevo, ...base];
     setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
-    addNotif({ tipo: "success", titulo: "Orden creada desde cotización", mensaje: `OT-${nuevo.ot} ← ${c.id} — ${c.cliente}`, modulo: "redes" });
-    showToast(`✅ OT-${nuevo.ot} creada desde ${c.id}${nuevo.direccion ? "" : " — falta la dirección"}`);
+    addNotif({ tipo: "success", titulo: "Orden de trabajo creada", mensaje: `OT-${nuevo.ot} — ${d.cliente}${d.cotizacionId ? ` (${d.cotizacionId})` : ""}`, modulo: "redes" });
+    showToast(`✅ OT-${nuevo.ot} creada${nuevo.direccion ? "" : " — falta la dirección"}`);
     setActiveTab("redes");
   }
+
+  // Cotización → Orden de trabajo en un clic (queda asignada para mañana 9:00; se ajusta desde la ficha)
+  function crearOTDesdeCotizacion(c: Cotizacion) {
+    const ya = redes.find(r => r.cotizacionId === c.id);
+    if (ya && !confirm(`${c.id} ya tiene la orden ${otLabel(ya)}.\n\n¿Crear otra orden de todos modos?`)) return;
+    const manana = new Date(Date.now() + 86400000); manana.setHours(9, 0, 0, 0);
+    const materiales = (c.items || []).map(i => `${i.qty}× ${i.nombre}`).join(", ");
+    crearOT({
+      cliente: c.cliente, telefono: c.whatsapp || "", direccion: c.ubicacion || "", cotizacionId: c.id,
+      tipoServicio: c.servicio || c.proyecto || "Otros servicios de infraestructura",
+      fecha: new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+      notas: [c.proyecto, materiales && `Materiales cotizados: ${materiales}`].filter(Boolean).join(" · "),
+    });
+  }
+
+  // Aviso diario (una vez al día) de mantenimientos vencidos / de la semana y garantías por vencer
+  useEffect(() => {
+    if (!currentUser || !cloudLoaded) return;
+    try { if (localStorage.getItem("zMantAviso") === hoyStr()) return; } catch { /* */ }
+    const it = agendaItems(redes, mantenimientos);
+    const venc = it.filter(i => i.grupo === "vencido").length, sem = it.filter(i => i.grupo === "semana").length;
+    const gar = garantias(redes).filter(g => g.estado === "por_vencer").length;
+    if (!venc && !sem && !gar) return;
+    try { localStorage.setItem("zMantAviso", hoyStr()); } catch { /* */ }
+    addNotif({ tipo: venc ? "warning" : "info", titulo: "Mantenimientos y garantías", mensaje: [venc && `${venc} vencido(s)`, sem && `${sem} esta semana`, gar && `${gar} garantía(s) por vencer`].filter(Boolean).join(" · "), modulo: "mantenimiento" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, cloudLoaded]);
 
   // Pide permiso de notificaciones del navegador al abrir la app
   useEffect(() => { requestNotifPermission(); }, []);
@@ -4238,7 +4410,7 @@ export default function App() {
       case "inventario": return <InventarioPage inventario={inventario} setInventario={setInventario} {...props} />;
       case "gastos": return <GastosPage gastos={gastos} setGastos={setGastos} {...props} />;
       case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} {...props} />;
-      case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} {...props} />;
+      case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} redes={redes} setRedes={setRedes} currentUser={currentUser} onAgendar={crearOT} {...props} />;
       case "redes": return <RedesPage redes={redes} setRedes={setRedes} cotizaciones={cotizaciones} ventas={ventas} currentUser={currentUser} {...props} />;
       case "logs": return currentUser.rol === "admin" ? <LogsPage showToast={showToast} /> : null;
       case "usuarios": return <UsuariosPage users={users} setUsers={setUsers} currentUser={currentUser} {...props} />;
