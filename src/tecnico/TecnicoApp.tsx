@@ -7,6 +7,7 @@ import {
 } from "@/app/cloudSync";
 import { subirDataUrl, urlDe, dataUrlDe, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma, borrarArchivo, firmaAutorizada } from "@/app/r2";
 import { EquipoEditor } from "@/app/EquipoEditor";
+import { logEvento, setLogUsuario } from "@/app/logger";
 import { SignaturePad } from "@/app/SignaturePad";
 import { descargarPdfServicioRed } from "@/app/pdfServicioRed";
 import type { ServicioRed, EquipoRed, ArchivoRed, HistorialRed, Cotizacion, UbicacionRed } from "@/app/App";
@@ -656,6 +657,13 @@ export function Panel({ perfilNombre, onLogout, offlineDemo = false }: { perfilN
   const guardar = useCallback(async (upd: ServicioRed): Promise<ServicioRed> => {
     const nuevo = { ...upd, ultimaModificacion: new Date().toISOString() };
     let base = redesRef.current;
+    const previo = base.find(r => r.id === nuevo.id);
+    if (!offlineDemo) {
+      const ot = nuevo.ot ? `OT-${nuevo.ot}` : nuevo.codigoCliente;
+      if (!previo) logEvento("cambio", "órdenes", "Orden creada desde la app del técnico", `${ot} — ${nuevo.clienteNombre}`);
+      else if (previo.estadoOrden !== nuevo.estadoOrden) logEvento("cambio", "órdenes", `${ot}: ${ORDEN_LABEL[previo.estadoOrden as EstadoOrden] || "—"} → ${ORDEN_LABEL[nuevo.estadoOrden as EstadoOrden] || "—"}`, `${nuevo.clienteNombre}`);
+      else if ((nuevo.bitacora || []).length > (previo.bitacora || []).length) logEvento("cambio", "órdenes", `${ot}: observación agregada`, (nuevo.bitacora || []).slice(-1)[0]?.texto);
+    }
     if (!offlineDemo) { try { const c = await fetchCloud<ServicioRed[]>("zRedes"); if (c) base = mezclarRedes(base, normalizar(c), { soloNube: true, conservar: nuevo.id }); } catch { /* usa lo local */ } }
     const next = base.some(r => r.id === nuevo.id) ? base.map(r => r.id === nuevo.id ? nuevo : r) : [nuevo, ...base];
     setRedes(next); redesRef.current = next; lsSet("zRedes", next);
@@ -818,6 +826,7 @@ export default function TecnicoApp() {
     } finally { setEntrando(false); }
   }
 
+  if (perfil) setLogUsuario(perfil.nombre);
   if (user && perfil) return <Panel perfilNombre={perfil.nombre} onLogout={() => signOutFb()} />;
 
   return (
