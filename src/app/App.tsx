@@ -22,6 +22,7 @@ import type { EstadoOrden, TiemposOrden, BorradorOrden, BitacoraOrden, Categoria
 import { ORDEN_LABEL, ORDEN_ESTADOS_TODOS, ORDEN_SIN_EJECUTAR, ORDEN_PERMITE_BITACORA, pasosDeOrden, comoLlegarUrl, waUrl,
   buildDescTecnica, equipoCompleto, equipoIncompleto, cerrarEquipo, aplicarEstadoOrden, mezclarRedes, tieneCredenciales, CATEGORIAS } from "@/app/redesCatalogo";
 import { EquipoEditor } from "@/app/EquipoEditor";
+import { logEvento, setLogUsuario, logsLocales, refrescarLogs, vaciarLogs, onLogsChange, type LogEntry } from "@/app/logger";
 import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, borrarArchivo, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma, firmaAutorizada } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
@@ -165,6 +166,7 @@ const normRedes = (list: unknown): ServicioRed[] => asignarOT(arr<ServicioRed>(l
 class PageBoundary extends Component<{ children: ReactNode }, { err: Error | null }> {
   state = { err: null as Error | null };
   static getDerivedStateFromError(err: Error) { return { err }; }
+  componentDidCatch(err: Error) { logEvento("error", "pantalla", "Una sección falló al mostrarse", String(err.message || err)); }
   render() {
     if (this.state.err) return (
       <div className="p-6 m-4 rounded-xl border border-red-500/40 bg-red-500/10 text-sm text-red-300">
@@ -253,7 +255,10 @@ const TABS = [
   { id: "pagos", label: "Pagos", icon: "💳" },
   { id: "mantenimiento", label: "Mantenimiento", icon: "🔧" },
   { id: "usuarios", label: "Usuarios", icon: "👥" },
+  { id: "logs", label: "Logs", icon: "🧾" },
 ];
+// «Logs» es solo para administradores; el resto se rige por permisos
+const tabVisible = (u: { rol: Role; permisos: Permisos }, id: string) => id === "logs" ? u.rol === "admin" : !!u.permisos[id as keyof Permisos];
 
 const ESTADO_RED_LABELS: Record<EstadoRed, string> = {
   activo: "Activo", pendiente: "Pendiente", programado: "Programado",
@@ -640,7 +645,7 @@ function TopNav({ user, activeTab, setActiveTab, notifs, onMarkAll, onMarkOne, o
 }) {
   const [showNotifs, setShowNotifs] = useState(false);
   const unread = notifs.filter(n => !n.leida).length;
-  const visibleTabs = TABS.filter(t => user.permisos[t.id as keyof Permisos]);
+  const visibleTabs = TABS.filter(t => tabVisible(user, t.id));
 
   return (
     <header className="bg-[#05060e] border-b border-[#1a2235] sticky top-0 z-40">
@@ -713,7 +718,7 @@ function TopNav({ user, activeTab, setActiveTab, notifs, onMarkAll, onMarkOne, o
 function Sidebar({ open, onClose, user, activeTab, setActiveTab }: {
   open: boolean; onClose: () => void; user: User; activeTab: string; setActiveTab: (t: string) => void;
 }) {
-  const visibleTabs = TABS.filter(t => user.permisos[t.id as keyof Permisos]);
+  const visibleTabs = TABS.filter(t => tabVisible(user, t.id));
   return (
     <>
       <AnimatePresence>
@@ -1967,6 +1972,83 @@ function PagosPage({ pagos, setPagos, showToast, addNotif }: {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// ─── PAGE: LOGS (solo admin) ──────────────────────────────────────────────────
+
+const LOG_NIVEL: Record<LogEntry["nivel"], { label: string; cls: string }> = {
+  error: { label: "Error", cls: "text-red-300 bg-red-500/10 border-red-500/30" },
+  advertencia: { label: "Aviso", cls: "text-amber-300 bg-amber-500/10 border-amber-500/30" },
+  cambio: { label: "Cambio", cls: "text-emerald-300 bg-emerald-500/10 border-emerald-500/30" },
+  info: { label: "Info", cls: "text-sky-300 bg-sky-500/10 border-sky-500/30" },
+};
+
+function LogsPage({ showToast }: { showToast: (m: string) => void }) {
+  const [logs, setLogs] = useState<LogEntry[]>(() => logsLocales());
+  const [nivel, setNivel] = useState<"todos" | LogEntry["nivel"]>("todos");
+  const [modulo, setModulo] = useState("todos");
+  const [q, setQ] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const recargar = async () => { setCargando(true); try { setLogs(await refrescarLogs()); } catch { setLogs(logsLocales()); } finally { setCargando(false); } };
+  useEffect(() => { recargar(); const off = onLogsChange(() => setLogs(logsLocales())); const t = setInterval(recargar, 30000); return () => { off(); clearInterval(t); }; }, []);
+
+  const modulos = Array.from(new Set(logs.map(l => l.modulo))).sort();
+  const vistos = logs.filter(l => (nivel === "todos" || l.nivel === nivel) && (modulo === "todos" || l.modulo === modulo) &&
+    (!q || (l.accion + " " + (l.detalle || "") + " " + (l.usuario || "")).toLowerCase().includes(q.toLowerCase())));
+  const errores = logs.filter(l => l.nivel === "error").length;
+
+  function exportar() {
+    const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
+    const csv = ["fecha,nivel,origen,modulo,usuario,accion,detalle", ...vistos.map(l => [l.fecha, l.nivel, l.origen, l.modulo, l.usuario || "", l.accion, l.detalle || ""].map(esc).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `logs-zento-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  }
+  function vaciar() {
+    if (!confirm("¿Vaciar TODOS los logs (también en la nube)? No se puede deshacer.")) return;
+    vaciarLogs(); setLogs([]); showToast("🗑️ Logs vaciados");
+  }
+  const sel = "bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#0ea5c8]";
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div><h2 className="text-xl font-black text-white">Logs del sistema</h2>
+          <p className="text-sm text-[#8090a8] mt-0.5">Errores y movimientos del CRM y de la app de técnicos · solo visible para administradores</p></div>
+        <div className="flex gap-2">
+          <Btn size="sm" variant="ghost" onClick={recargar}><RefreshCw size={12} className={cargando ? "animate-spin" : ""} /> Actualizar</Btn>
+          <Btn size="sm" variant="ghost" onClick={exportar}><Download size={12} /> CSV</Btn>
+          <Btn size="sm" variant="ghost" onClick={vaciar}><Trash2 size={12} /> Vaciar</Btn>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {[["Registros", logs.length, "text-white"], ["Errores", errores, errores ? "text-red-400" : "text-white"], ["Hoy", logs.filter(l => l.fecha.slice(0, 10) === new Date().toISOString().slice(0, 10)).length, "text-[#0ea5c8]"]].map(([l, v, c]) => (
+          <div key={l as string} className="bg-[#0b0e1a] border border-[#1a2235] rounded-xl p-3"><div className="text-[11px] text-[#8090a8] uppercase">{l}</div><div className={`text-2xl font-black ${c}`}>{v}</div></div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar..." className={sel + " flex-1 min-w-[140px]"} />
+        <select value={nivel} onChange={e => setNivel(e.target.value as typeof nivel)} className={sel}>
+          <option value="todos">Todos los niveles</option>{(Object.keys(LOG_NIVEL) as LogEntry["nivel"][]).map(k => <option key={k} value={k}>{LOG_NIVEL[k].label}</option>)}
+        </select>
+        <select value={modulo} onChange={e => setModulo(e.target.value)} className={sel}>
+          <option value="todos">Todos los módulos</option>{modulos.map(m => <option key={m}>{m}</option>)}
+        </select>
+      </div>
+      <div className="bg-[#0b0e1a] border border-[#1a2235] rounded-xl divide-y divide-[#1a2235] max-h-[65vh] overflow-y-auto">
+        {vistos.length === 0 && <div className="p-8 text-center text-sm text-[#5a6a80]">Sin registros con estos filtros</div>}
+        {vistos.slice(0, 300).map(l => (
+          <div key={l.id} className="px-3 py-2 text-xs flex gap-2 items-start">
+            <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${LOG_NIVEL[l.nivel].cls}`}>{LOG_NIVEL[l.nivel].label}</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-white font-medium break-words">{l.accion}</div>
+              {l.detalle && <div className="text-[#8090a8] break-words font-mono text-[11px]">{l.detalle}</div>}
+              <div className="text-[10px] text-[#5a6a80] mt-0.5">{new Date(l.fecha).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "medium" })} · {l.modulo} · {l.origen === "tecnico" ? "app técnico" : "CRM"}{l.usuario ? ` · ${l.usuario}` : ""}</div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3909,8 +3991,11 @@ export default function App() {
   function addNotif(n: Omit<Notif, "id" | "fecha" | "leida">) {
     const notif: Notif = { ...n, id: uid(), fecha: new Date().toISOString(), leida: false };
     setNotifs(prev => { const next = [notif, ...prev].slice(0, 50); persist("zNotifs", next); return next; });
+    logEvento(n.tipo === "warning" ? "advertencia" : n.tipo === "error" ? "error" : n.tipo === "info" ? "info" : "cambio", n.modulo || "sistema", n.titulo, n.mensaje);
     notifyBrowser(n.titulo, n.mensaje);
   }
+
+  useEffect(() => { setLogUsuario(currentUser?.nombre || ""); }, [currentUser]);
 
   // Pide permiso de notificaciones del navegador al abrir la app
   useEffect(() => { requestNotifPermission(); }, []);
@@ -4032,6 +4117,7 @@ export default function App() {
   }
 
   function handleLogout() {
+    logEvento("info", "sistema", "Sesión cerrada");
     signOutFb().catch(() => {});
     setCurrentUser(null);
     setUsers([]);
@@ -4042,7 +4128,7 @@ export default function App() {
   // Ensure user always has access to at least a first available tab
   useEffect(() => {
     if (!currentUser) return;
-    const visible = TABS.filter(t => currentUser.permisos[t.id as keyof Permisos]);
+    const visible = TABS.filter(t => tabVisible(currentUser, t.id));
     if (visible.length > 0 && !visible.find(t => t.id === activeTab)) setActiveTab(visible[0].id);
   }, [currentUser, activeTab]);
 
@@ -4071,6 +4157,7 @@ export default function App() {
       case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} {...props} />;
       case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} {...props} />;
       case "redes": return <RedesPage redes={redes} setRedes={setRedes} cotizaciones={cotizaciones} ventas={ventas} currentUser={currentUser} {...props} />;
+      case "logs": return currentUser.rol === "admin" ? <LogsPage showToast={showToast} /> : null;
       case "usuarios": return <UsuariosPage users={users} setUsers={setUsers} currentUser={currentUser} {...props} />;
       default: return null;
     }
