@@ -11,7 +11,10 @@
   "theme_color": "#0ea5c8",
   "lang": "es-GT",
   "dir": "ltr",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
@@ -54,13 +57,12 @@
       "name": "Nueva Cotización",
       "short_name": "Cotización",
       "url": "/?tab=cotizador",
-      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
-    },
-    {
-      "name": "Hoja de Trabajo",
-      "short_name": "Hoja",
-      "url": "/?tab=hoja",
-      "icons": [{ "src": "/icons/web-app-manifest-192x192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/web-app-manifest-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
