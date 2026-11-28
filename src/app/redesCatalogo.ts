@@ -320,7 +320,8 @@ export const telDigitos = (t: string) => {
 };
 export const waUrl = (t: string, texto = "") => `https://wa.me/${telDigitos(t)}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
 
-export function comprimirImagen(file: File, max = 1280, calidad = 0.7): Promise<string> {
+/** Comprime la foto y, si se da `sello`, imprime una franja con fecha/OT/ubicación (evidencia ante reclamos). */
+export function comprimirImagen(file: File, max = 1280, calidad = 0.7, sello?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -328,11 +329,59 @@ export function comprimirImagen(file: File, max = 1280, calidad = 0.7): Promise<
       const k = Math.min(1, max / Math.max(img.width, img.height));
       const c = document.createElement("canvas");
       c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+      const g = c.getContext("2d")!;
+      g.drawImage(img, 0, 0, c.width, c.height);
+      if (sello) {
+        const lineas = sello.split("\n").filter(Boolean);
+        const fs = Math.max(12, Math.round(c.width / 52));
+        const pad = Math.round(fs * 0.55), alto = lineas.length * (fs + 3) + pad * 2 - 3;
+        g.fillStyle = "rgba(6,10,24,0.62)";
+        g.fillRect(0, c.height - alto, c.width, alto);
+        g.fillStyle = "#ffffff"; g.textBaseline = "top";
+        lineas.forEach((l, i) => {
+          g.font = `${i === 0 ? "bold " : ""}${fs}px system-ui, Arial, sans-serif`;
+          g.fillText(l, pad, c.height - alto + pad + i * (fs + 3), c.width - pad * 2);
+        });
+      }
       URL.revokeObjectURL(url);
       resolve(c.toDataURL("image/jpeg", calidad));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("img")); };
     img.src = url;
   });
+}
+
+/** Texto del sello de una foto: Zento Data · OT · fecha y hora (+ cliente y GPS si se conocen) */
+export function selloFoto(sv: { ot?: string; codigoCliente?: string; clienteNombre?: string; ubicacion?: UbicacionRed; tiempos?: TiemposOrden }, gps?: UbicacionRed | null): string {
+  const f = new Date().toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" });
+  const u = gps || sv.tiempos?.llegada?.ubicacion || sv.ubicacion;
+  return [`Zento Data · ${sv.ot ? "OT-" + sv.ot : sv.codigoCliente || ""} · ${f}`,
+    [sv.clienteNombre, u ? `GPS ${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}` : ""].filter(Boolean).join(" · ")].filter(Boolean).join("\n");
+}
+
+// ─── Avisos al cliente por WhatsApp ──────────────────────────────────────────
+export type TipoAviso = "cita" | "recordatorio" | "camino" | "llegada" | "terminado" | "reasignada";
+export const AVISOS_WA: { id: TipoAviso; label: string }[] = [
+  { id: "cita", label: "📅 Confirmar cita" }, { id: "recordatorio", label: "⏰ Recordatorio de visita" },
+  { id: "camino", label: "🚗 Voy en camino" }, { id: "llegada", label: "📍 Ya llegué" },
+  { id: "terminado", label: "✅ Servicio terminado" }, { id: "reasignada", label: "🔁 Nueva fecha de visita" },
+];
+/** Aviso sugerido según el estado de la orden */
+export const avisoDeEstado = (e?: EstadoOrden): TipoAviso =>
+  e === "en_camino" ? "camino" : e === "en_espera" ? "llegada" : e === "terminada" || e === "firmada" ? "terminado" : e === "reasignada" ? "reasignada" : "cita";
+
+export function mensajeWhatsapp(sv: { clienteNombre: string; ot?: string; fechaProgramada?: string; tecnicoAsignado?: string; direccion?: string }, tipo: TipoAviso, tecnico?: string): string {
+  const cli = (sv.clienteNombre || "").split(" ")[0] || "";
+  const ot = sv.ot ? ` (OT-${sv.ot})` : "";
+  const cuando = sv.fechaProgramada ? new Date(sv.fechaProgramada).toLocaleString("es-GT", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).replace(/\.$/, "") : "";
+  const tec = tecnico || sv.tecnicoAsignado || "su técnico";
+  const firma = "\n\nZento Data 🔒 Seguridad Electrónica y Soporte Técnico";
+  switch (tipo) {
+    case "cita": return `Hola ${cli}, le saluda ${tec} de Zento Data. Le confirmo su servicio${ot}${cuando ? ` para el ${cuando}` : ""}${sv.direccion ? ` en ${sv.direccion}` : ""}. ¿Me confirma que habrá alguien para recibirnos? Gracias.${firma}`;
+    case "recordatorio": return `Hola ${cli}, le recordamos su visita de servicio${ot}${cuando ? ` programada para el ${cuando}` : " programada"}. Si necesita cambiar la hora, avíseme por este medio.${firma}`;
+    case "camino": return `Hola ${cli}, soy ${tec} de Zento Data. Ya voy en camino a su servicio${ot}. Le aviso al llegar.${firma}`;
+    case "llegada": return `Hola ${cli}, ya llegué a su dirección${ot}. ¿Me permite el acceso para iniciar el trabajo?${firma}`;
+    case "terminado": return `Hola ${cli}, hemos terminado su servicio${ot}. Gracias por confiar en Zento Data; cualquier duda o ajuste con gusto le atendemos. Su acta quedará disponible para firma.${firma}`;
+    case "reasignada": return `Hola ${cli}, por ajustes de agenda su servicio${ot} se reprogramó${cuando ? ` para el ${cuando}` : ""}. ¿Le queda bien esa fecha? Gracias por su comprensión.${firma}`;
+  }
 }

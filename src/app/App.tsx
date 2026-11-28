@@ -19,6 +19,7 @@ import {
 import { buildHubSummary } from "@/app/hubSummary";
 import { SignaturePad } from "@/app/SignaturePad";
 import type { EstadoOrden, TiemposOrden, BorradorOrden, BitacoraOrden, CategoriaEquipo } from "@/app/redesCatalogo";
+import { AVISOS_WA, avisoDeEstado, mensajeWhatsapp, type TipoAviso } from "@/app/redesCatalogo";
 import { ORDEN_LABEL, ORDEN_ESTADOS_TODOS, ORDEN_SIN_EJECUTAR, ORDEN_PERMITE_BITACORA, pasosDeOrden, comoLlegarUrl, waUrl,
   buildDescTecnica, equipoCompleto, equipoIncompleto, cerrarEquipo, aplicarEstadoOrden, mezclarRedes, tieneCredenciales, CATEGORIAS } from "@/app/redesCatalogo";
 import { EquipoEditor } from "@/app/EquipoEditor";
@@ -1090,8 +1091,8 @@ function CotizadorPage({ catalog, cotizaciones, setCotizaciones, showToast, addN
 
 // ─── PAGE: SEGUIMIENTO ────────────────────────────────────────────────────────
 
-function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, addNotif }: {
-  cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void; catalog: Producto[];
+function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, addNotif, onCrearOT }: {
+  cotizaciones: Cotizacion[]; setCotizaciones: (c: Cotizacion[]) => void; catalog: Producto[]; onCrearOT: (c: Cotizacion) => void;
   showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
   const [filter, setFilter] = useState("todas");
@@ -1230,6 +1231,10 @@ function SeguimientoPage({ cotizaciones, setCotizaciones, catalog, showToast, ad
                       className="bg-[#0b0e1a] border border-[#1a2235] rounded-lg px-2 py-1 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]">
                       {["pendiente","enviada","aprobada","rechazada"].map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
+                    {c.estado !== "rechazada" && (
+                      <button onClick={() => onCrearOT(c)} title="Crear orden de trabajo con los datos de esta cotización"
+                        className="px-2 py-1 text-[11px] font-semibold text-violet-300 border border-violet-500/40 hover:bg-violet-500/10 rounded-lg">📋 Crear OT</button>
+                    )}
                     <button onClick={() => abrirEdicion(c)} title="Editar cotización"
                       className="p-1.5 text-[#0ea5c8] hover:bg-[#0ea5c8]/10 rounded"><Edit2 size={13} /></button>
                     <button onClick={() => duplicarCotizacion(c)} title="Duplicar cotización"
@@ -2303,7 +2308,7 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
   const expediente = expedienteCodigo ? expedientes.find(e => e.codigo === expedienteCodigo) || null : null;
   const cotizacionesCliente = expediente ? cotizaciones.filter(c => (c.cliente || "").toLowerCase() === expediente.nombre.toLowerCase()) : [];
   const ventasCliente = expediente ? ventas.filter(v => (v.cliente || "").toLowerCase() === expediente.nombre.toLowerCase()) : [];
-  const equiposCliente = expediente ? expediente.servicios.flatMap(s => s.equipos.map(e => ({ ...e, servicio: s.tipoServicio }))) : [];
+  const equiposCliente = expediente ? expediente.servicios.flatMap(s => s.equipos.map(e => ({ ...e, servicio: s.tipoServicio, fechaInst: s.fechaInstalacion, svId: s.id }))) : [];
   const historialCliente = expediente
     ? expediente.servicios.flatMap(s => s.historial.map(h => ({ ...h, servicio: s.tipoServicio, codigoServicio: s.id }))).sort((a, b) => b.fecha.localeCompare(a.fecha))
     : [];
@@ -3237,6 +3242,17 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
                   <button type="button" onClick={() => setReasignar({ id: detalle.id, fecha: detalle.fechaProgramada || ahoraLocal(), motivo: "" })}
                     className="shrink-0 px-2 py-1 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10">🔁 Reasignar</button>
                 </div>
+                {(detalle.clienteWhatsapp || detalle.clienteTelefono) && (
+                  <div className="py-1">
+                    <div className="text-[10px] font-bold text-[#8090a8] uppercase tracking-wider mb-1">💬 Avisar al cliente por WhatsApp</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {AVISOS_WA.map(a => (
+                        <a key={a.id} href={waUrl(detalle.clienteWhatsapp || detalle.clienteTelefono, mensajeWhatsapp(detalle, a.id as TipoAviso, currentUser.nombre))} target="_blank" rel="noopener noreferrer"
+                          className={`px-2 py-1 rounded-lg text-[11px] font-semibold border ${a.id === avisoDeEstado(detalle.estadoOrden) ? "border-emerald-500/60 text-emerald-300 bg-emerald-500/10" : "border-[#1a2235] text-[#8090a8] hover:text-white"}`}>{a.label}</a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {detalle.fechaProgramada && <div><span className="text-[#8090a8]">Programada:</span> <span className="text-white">{new Date(detalle.fechaProgramada).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" })}</span></div>}
                 {detalle.direccion && <div><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{detalle.direccion}</span> · <a href={comoLlegarUrl(detalle.direccion)} target="_blank" rel="noopener noreferrer" className="text-[#0ea5c8] hover:underline">Cómo llegar</a></div>}
                 {(detalle.clienteWhatsapp || detalle.clienteTelefono) && <div><span className="text-[#8090a8]">Contacto:</span> <span className="text-white">{detalle.clienteTelefono}</span> · <a href={waUrl(detalle.clienteWhatsapp || detalle.clienteTelefono)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">WhatsApp</a></div>}
@@ -3527,6 +3543,31 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
               <Btn size="sm" variant="ghost" onClick={() => setEditandoCliente(v => !v)}><Edit2 size={12} /> {editandoCliente ? "Cancelar" : "Editar datos"}</Btn>
             </div>
 
+            {(() => {
+              const tel = expediente.telefono || "";
+              const ult = expediente.servicios.flatMap(x => x.historial).map(h => h.fecha).sort().slice(-1)[0];
+              const prox = expediente.servicios.map(x => x.fechaProximoMant).filter((x): x is string => !!x).sort()[0];
+              const cotizado = cotizacionesCliente.filter(c => c.estado === "aprobada").reduce((a, c) => a + c.total, 0);
+              const act = (cls: string) => `px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border ${cls}`;
+              return (
+                <>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    {[["Servicios", String(expediente.servicios.length)], ["Equipos", String(equiposCliente.length)], ["Última visita", ult || "—"], ["Próx. mant.", prox || "—"]].map(([l, v]) => (
+                      <div key={l} className="bg-[#060810] border border-[#1a2235] rounded-lg py-2 px-1"><div className="text-[9px] text-[#8090a8] uppercase">{l}</div><div className="text-xs font-bold text-white">{v}</div></div>
+                    ))}
+                  </div>
+                  {cotizado > 0 && <div className="text-[11px] text-[#8090a8]">Cotizaciones aprobadas: <span className="text-emerald-300 font-semibold">{fmt(cotizado)}</span></div>}
+                  <div className="flex flex-wrap gap-1.5">
+                    {telDigitos(tel) && <a href={`tel:+${telDigitos(tel)}`} className={act("border-[#1a2235] text-[#c8d8e8] hover:text-white")}>📞 Llamar</a>}
+                    {telDigitos(tel) && <a href={waUrl(tel, `Hola ${expediente.nombre.split(" ")[0]}, le saluda Zento Data. `)} target="_blank" rel="noopener noreferrer" className={act("border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10")}>💬 WhatsApp</a>}
+                    {expediente.direccion && <a href={comoLlegarUrl(expediente.direccion)} target="_blank" rel="noopener noreferrer" className={act("border-[#1a2235] text-[#c8d8e8] hover:text-white")}>🗺️ Cómo llegar</a>}
+                    <button onClick={() => { setOrdenForm({ ...ordenVacia(), clienteNombre: expediente.nombre, telefono: tel, whatsapp: tel, direccion: expediente.direccion || "" }); setExpedienteCodigo(null); setOrdenModal(true); }}
+                      className={act("border-violet-500/40 text-violet-300 hover:bg-violet-500/10")}>📋 Nueva OT para este cliente</button>
+                  </div>
+                </>
+              );
+            })()}
+
             {editandoCliente ? (
               <div className="space-y-3 bg-[#060810] border border-[#1a2235] rounded-lg p-3">
                 <div className="grid grid-cols-2 gap-3">
@@ -3565,12 +3606,26 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
 
             {equiposCliente.length > 0 && (
               <div>
-                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Equipos instalados ({equiposCliente.length})</div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Ficha técnica · equipos instalados ({equiposCliente.length})</div>
+                <div className="space-y-1.5">
                   {equiposCliente.map((e, i) => (
-                    <span key={e.id + i} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-1 text-[#c8d8e8]">
-                      {e.modelo} <span className="text-[#5a6a80]">· {e.servicio}</span>
-                    </span>
+                    <div key={e.id + i} className="text-xs bg-[#060810] border border-[#1a2235] rounded-lg px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-white font-semibold">{(e.cantidad || 1) > 1 ? `${e.cantidad}× ` : ""}{[e.tipoEquipo, e.marca, e.modelo !== e.tipoEquipo ? e.modelo : ""].filter(Boolean).join(" ")}</span>
+                          {e.categoria && <span className="ml-1.5 text-[10px] text-[#0ea5c8]">{CATEGORIAS[e.categoria]?.icono} {CATEGORIAS[e.categoria]?.label}</span>}
+                        </div>
+                        <span className="text-[10px] text-[#5a6a80] shrink-0">{e.fechaInst}</span>
+                      </div>
+                      <div className="text-[#8090a8] mt-0.5">
+                        {[e.ubicacion && `📍 ${e.ubicacion}`, e.serial && `S/N ${e.serial}`, e.mac && `MAC ${e.mac}`, e.garantia && `Garantía ${e.garantia}`, e.servicio].filter(Boolean).join(" · ")}
+                      </div>
+                      {tieneCredenciales(e) && (currentUser.rol === "admin" || currentUser.rol === "tecnico") && (
+                        <div className="mt-1 text-[11px] text-amber-300 font-mono break-all">
+                          🔑 {[e.ip && `IP ${e.ip}`, e.usuario && `usr: ${e.usuario}`, e.clave && `clave: ${e.clave}`, e.ssid && `Wi-Fi: ${e.ssid}`, e.claveWifi && `clave Wi-Fi: ${e.claveWifi}`].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -3997,6 +4052,34 @@ export default function App() {
 
   useEffect(() => { setLogUsuario(currentUser?.nombre || ""); }, [currentUser]);
 
+  // Cotización → Orden de trabajo en un clic (queda asignada para mañana 9:00; se ajusta desde la ficha)
+  async function crearOTDesdeCotizacion(c: Cotizacion) {
+    const ya = redes.find(r => r.cotizacionId === c.id);
+    if (ya && !confirm(`${c.id} ya tiene la orden ${otLabel(ya)}.\n\n¿Crear otra orden de todos modos?`)) return;
+    let base = redes;
+    try { const cloud = await fetchCloud<ServicioRed[]>("zRedes"); if (cloud) base = mezclarRedes(base, normRedes(cloud)); } catch { /* sin conexión */ }
+    const manana = new Date(Date.now() + 86400000); manana.setHours(9, 0, 0, 0);
+    const fecha = new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const existente = base.find(r => r.clienteNombre.toLowerCase() === c.cliente.toLowerCase());
+    const nums = base.map(r => parseInt(r.codigoCliente.replace("ZD-", ""), 10)).filter(n => !isNaN(n));
+    const codigo = existente ? existente.codigoCliente : `ZD-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
+    const materiales = (c.items || []).map(i => `${i.qty}× ${i.nombre}`).join(", ");
+    const nuevo: ServicioRed = {
+      id: uid(), ot: genOT(new Set(base.map(r => r.ot).filter((x): x is string => !!x))), codigoCliente: codigo,
+      clienteNombre: c.cliente, clienteTelefono: c.whatsapp || existente?.clienteTelefono || "", clienteWhatsapp: c.whatsapp || existente?.clienteTelefono || "",
+      direccion: c.ubicacion || existente?.clienteDireccion || existente?.direccion || "",
+      tipoServicio: c.servicio || c.proyecto || "Otros servicios de infraestructura", proveedor: "", plan: "", estado: "programado",
+      equipos: [], historial: [], fechaInstalacion: fecha.slice(0, 10), ultimaModificacion: new Date().toISOString(),
+      estadoOrden: "asignada", fechaProgramada: fecha, cotizacionId: c.id, tecnicoAsignado: currentUser?.nombre || "",
+      notasOrden: [c.proyecto, materiales && `Materiales cotizados: ${materiales}`].filter(Boolean).join(" · ") || undefined,
+    };
+    const next = [nuevo, ...base];
+    setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+    addNotif({ tipo: "success", titulo: "Orden creada desde cotización", mensaje: `OT-${nuevo.ot} ← ${c.id} — ${c.cliente}`, modulo: "redes" });
+    showToast(`✅ OT-${nuevo.ot} creada desde ${c.id}${nuevo.direccion ? "" : " — falta la dirección"}`);
+    setActiveTab("redes");
+  }
+
   // Pide permiso de notificaciones del navegador al abrir la app
   useEffect(() => { requestNotifPermission(); }, []);
 
@@ -4149,7 +4232,7 @@ export default function App() {
     const props = { showToast, addNotif };
     switch (activeTab) {
       case "cotizador": return <CotizadorPage catalog={catalog} cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} fbUrl={fbUrl} onFbConfigSaved={handleFbConfigSaved} onFbDisconnect={handleFbDisconnect} {...props} />;
-      case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} catalog={catalog} {...props} />;
+      case "seguimiento": return <SeguimientoPage cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} catalog={catalog} onCrearOT={crearOTDesdeCotizacion} {...props} />;
       case "catalogo": return <CatalogoPage catalog={catalog} setCatalog={setCatalog} fbUrl={fbUrl} {...props} />;
       case "ventas": return <VentasPage ventas={ventas} setVentas={setVentas} {...props} />;
       case "inventario": return <InventarioPage inventario={inventario} setInventario={setInventario} {...props} />;
