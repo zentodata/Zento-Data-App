@@ -5,14 +5,15 @@ import type { User as FbUser } from "firebase/auth";
 import {
   onAuthChange, signInEmail, signOutFb, getUserProfile, fetchCloud, persist, getFbUrl,
 } from "@/app/cloudSync";
-import { subirDataUrl, urlDe, dataUrlDe, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma, borrarArchivo } from "@/app/r2";
+import { subirDataUrl, urlDe, dataUrlDe, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma, borrarArchivo, firmaAutorizada } from "@/app/r2";
+import { EquipoEditor } from "@/app/EquipoEditor";
 import { SignaturePad } from "@/app/SignaturePad";
 import { descargarPdfServicioRed } from "@/app/pdfServicioRed";
 import type { ServicioRed, EquipoRed, ArchivoRed, HistorialRed, Cotizacion, UbicacionRed } from "@/app/App";
 import {
-  type EstadoOrden, type BorradorOrden, ORDEN_LABEL, ORDEN_ESTADOS, ORDEN_PASOS,
-  MARCAS_REDES, MARCAS_CAMARAS, TIPOS_EQUIPO_REDES, TIPOS_EQUIPO_CAMARAS,
-  marcaFinal, buildDescAuto, capturarUbicacion, mapaUrl, comoLlegarUrl, telDigitos, waUrl, comprimirImagen,
+  type EstadoOrden, type BorradorOrden, type BitacoraOrden, ORDEN_LABEL, pasosDeOrden, ORDEN_PERMITE_BITACORA,
+  buildDescTecnica, equipoCompleto, equipoIncompleto, cerrarEquipo, mezclarRedes,
+  capturarUbicacion, mapaUrl, comoLlegarUrl, telDigitos, waUrl, comprimirImagen,
 } from "@/app/redesCatalogo";
 
 // ─── Utilidades ──────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ function normalizar(list: unknown): ServicioRed[] {
     ...r,
     clienteNombre: r.clienteNombre || "", clienteTelefono: r.clienteTelefono || "", codigoCliente: r.codigoCliente || "",
     equipos: arr<EquipoRed>(r.equipos),
+    bitacora: arr<BitacoraOrden>(r.bitacora),
     historial: arr<HistorialRed>(r.historial).map(h => ({ ...h, fotos: arr<ArchivoRed>(h.fotos), documentos: arr<ArchivoRed>(h.documentos) })),
     borrador: r.borrador ? {
       ...r.borrador,
@@ -41,21 +43,9 @@ function normalizar(list: unknown): ServicioRed[] {
     } : undefined,
   }));
 }
-// Gana el más reciente de cada servicio
-function mezclar(local: ServicioRed[], nube: ServicioRed[]): ServicioRed[] {
-  const porId = new Map(local.map(r => [r.id, r]));
-  const nuevos: ServicioRed[] = [];
-  for (const c of nube) {
-    const l = porId.get(c.id);
-    if (!l) nuevos.push(c);
-    else if ((c.ultimaModificacion || "") > (l.ultimaModificacion || "")) porId.set(c.id, c);
-  }
-  return [...nuevos, ...local.map(r => porId.get(r.id) || r)];
-}
-
 // Estilos por estado (tema claro)
 const ESTADO_PILL: Record<EstadoOrden, string> = {
-  asignada: "bg-violet-100 text-violet-700", en_camino: "bg-sky-100 text-sky-700", en_espera: "bg-amber-100 text-amber-700",
+  asignada: "bg-violet-100 text-violet-700", reasignada: "bg-orange-100 text-orange-700", en_camino: "bg-sky-100 text-sky-700", en_espera: "bg-amber-100 text-amber-700",
   en_proceso: "bg-indigo-100 text-indigo-700", terminada: "bg-teal-100 text-teal-700", firmada: "bg-emerald-100 text-emerald-700",
 };
 const NAVY = "#1f2a7a";
@@ -84,14 +74,16 @@ function Foto({ a, className = "" }: { a: ArchivoRed; className?: string }) {
 }
 
 function Stepper({ estado }: { estado: EstadoOrden }) {
-  const idx = ORDEN_ESTADOS.indexOf(estado);
+  const { labels, actual: idx } = pasosDeOrden(estado);
+  const reas = estado === "reasignada";
+  const color = (i: number) => (reas && i === 1 ? "#ea8a0c" : NAVY);
   return (
     <div className="flex items-start px-1 pt-3 pb-2">
-      {ORDEN_PASOS.map((label, i) => (
+      {labels.map((label, i) => (
         <div key={label} className="flex-1 flex flex-col items-center relative min-w-0">
-          {i > 0 && <div className="absolute top-[13px] right-1/2 w-full h-[2px]" style={{ background: i <= idx ? NAVY : "#dfe2ee" }} />}
+          {i > 0 && <div className="absolute top-[13px] right-1/2 w-full h-[2px]" style={{ background: i <= idx ? color(i) : "#dfe2ee" }} />}
           <div className="relative z-10 w-[27px] h-[27px] rounded-full flex items-center justify-center text-[12px] font-bold border-2"
-            style={i < idx ? { background: NAVY, borderColor: NAVY, color: "#fff" } : i === idx ? { background: NAVY, borderColor: NAVY, color: "#fff" } : { background: "#eceef6", borderColor: "#eceef6", color: "#a4abc4" }}>
+            style={i <= idx ? { background: color(i), borderColor: color(i), color: "#fff" } : { background: "#eceef6", borderColor: "#eceef6", color: "#a4abc4" }}>
             {i < idx ? "✓" : i + 1}
           </div>
           <div className={`mt-1 text-[10px] leading-tight text-center px-0.5 ${i === idx ? "font-bold text-[#1f2a7a]" : "text-slate-500"}`}>{label}</div>
@@ -172,67 +164,17 @@ function Galeria({ items, onChange, max = 6, requerida = false, titulo = "Galer�
 const borradorVacio = (sv: ServicioRed): BorradorOrden => ({
   paso: 0, referencia: "", equipos: [{ id: uid(), modelo: "", cantidad: 1 }], fotosEquipos: [],
   conforme: true, observaciones: "", fotosPrueba: [], firmante: sv.clienteNombre, fotosCierre: [],
+  firmaTecnicoAutorizada: (() => { try { return localStorage.getItem("zFirmaAut") === "1"; } catch { return false; } })(),
 });
 
-function EquipoEditor({ eq, onChange, onDelete, puedeBorrar }: { eq: EquipoRed; onChange: (e: EquipoRed) => void; onDelete: () => void; puedeBorrar: boolean }) {
-  const cat = eq.categoria;
-  const marcas = cat === "camaras" ? MARCAS_CAMARAS : MARCAS_REDES;
-  const tipos = cat === "camaras" ? TIPOS_EQUIPO_CAMARAS : TIPOS_EQUIPO_REDES;
-  const set = (p: Partial<EquipoRed>) => onChange({ ...eq, ...p });
+function FirmaAutPrev() {
+  const [src, setSrc] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => { let a = true; firmaAutorizada().then(d => a && setSrc(d)).catch(() => a && setErr(true)); return () => { a = false; }; }, []);
   return (
-    <div className="rounded-xl border border-[#e1e4ef] p-3 space-y-3 bg-[#fafbfe]">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-600">¿Qué se instaló?</span>
-        {puedeBorrar && <button onClick={onDelete} className="text-red-500 text-sm">Quitar</button>}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {([["redes", "🌐 Redes"], ["camaras", "📹 Cámaras"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => set({ categoria: k, tipoEquipo: "", marca: "", marcaOtra: "", modelo: "" })}
-            className={`py-3 rounded-lg text-base font-semibold border-2 ${cat === k ? "text-white" : "bg-white text-slate-600 border-[#e1e4ef]"}`}
-            style={cat === k ? { background: NAVY, borderColor: NAVY } : undefined}>{l}</button>
-        ))}
-      </div>
-      {cat && (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={labelCls}>{cat === "camaras" ? "Tipo de cámara" : "Equipo de red"}</label>
-              <select className={inputCls} value={eq.tipoEquipo || ""} onChange={e => set({ tipoEquipo: e.target.value })}>
-                <option value="">Seleccionar...</option>{tipos.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Marca</label>
-              <select className={inputCls} value={eq.marca || ""} onChange={e => set({ marca: e.target.value })}>
-                <option value="">Seleccionar...</option>{marcas.map(m => <option key={m}>{m}</option>)}<option value="Otra">Otra...</option>
-              </select>
-            </div>
-          </div>
-          {eq.marca === "Otra" && <input className={inputCls} placeholder="Escribe la marca" value={eq.marcaOtra || ""} onChange={e => set({ marcaOtra: e.target.value })} />}
-          {eq.marca && (
-            <>
-              <div className="grid grid-cols-[1fr_84px] gap-2">
-                <div>
-                  <label className={labelCls}>Nombre o modelo *</label>
-                  <input className={inputCls} value={eq.modelo} onChange={e => set({ modelo: e.target.value })} placeholder={cat === "camaras" ? "Ej. DS-2CD1023G0E-I" : "Ej. Deco S7"} />
-                </div>
-                <div>
-                  <label className={labelCls}>Cant.</label>
-                  <input className={inputCls} type="number" min={1} inputMode="numeric" value={eq.cantidad || 1} onChange={e => set({ cantidad: Math.max(1, parseInt(e.target.value, 10) || 1) })} />
-                </div>
-              </div>
-              <div>
-                <label className={labelCls}>{(eq.cantidad || 1) > 1 ? "Seriales (separados por coma)" : "Serial o N° de equipo"}</label>
-                <input className={inputCls} value={eq.serial || ""} onChange={e => set({ serial: e.target.value })} />
-              </div>
-              <div>
-                <label className={labelCls}>Ubicación</label>
-                <input className={inputCls} value={eq.ubicacion || ""} onChange={e => set({ ubicacion: e.target.value })} placeholder="Ej. entrada, sala, cuarto de racks" />
-              </div>
-            </>
-          )}
-        </>
-      )}
+    <div className="rounded-xl border border-[#e1e4ef] bg-white h-28 flex items-center justify-center">
+      {src ? <img src={src} alt="Firma autorizada" className="max-h-24 max-w-full object-contain" />
+        : <span className="text-sm text-slate-400">{err ? "No se pudo cargar la firma (¿sin conexión?)" : "Cargando firma..."}</span>}
     </div>
   );
 }
@@ -247,10 +189,11 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
   dRef.current = d;
   const upd = (p: Partial<BorradorOrden>) => setD(prev => ({ ...prev, ...p }));
 
-  const equiposValidos = d.equipos.filter(e => e.categoria && marcaFinal(e) && e.modelo.trim());
+  const equiposValidos = d.equipos.filter(equipoCompleto);
+  const hayIncompletos = d.equipos.some(equipoIncompleto);
   const razon = [
     () => (!d.fachada ? "Toma la foto de fachada o punto" : ""),
-    () => (equiposValidos.length === 0 ? "Registra al menos un equipo con marca y modelo" : d.fotosEquipos.length === 0 ? "Agrega al menos una foto de los equipos" : ""),
+    () => (equiposValidos.length === 0 ? "Registra al menos un equipo con tipo, marca y modelo" : hayIncompletos ? "Hay un equipo a medias: complétalo o quítalo" : d.fotosEquipos.length === 0 ? "Agrega al menos una foto de los equipos" : ""),
     () => (d.fotosPrueba.length === 0 ? "Agrega al menos una foto de la prueba de funcionamiento" : ""),
     () => "",
   ][d.paso]();
@@ -267,9 +210,9 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
     try {
       const ahora = new Date().toISOString();
       const ub = await capturarUbicacion(8000);
-      const eqs: EquipoRed[] = equiposValidos.map(e => ({ ...e, marca: marcaFinal(e), marcaOtra: undefined, modelo: e.modelo.trim() }));
+      const eqs: EquipoRed[] = equiposValidos.map(cerrarEquipo);
       const fotos = [...(d.fachada ? [d.fachada] : []), ...d.fotosEquipos, ...d.fotosPrueba, ...d.fotosCierre];
-      let desc = buildDescAuto(eqs) || `Instalación de ${sv.tipoServicio}.`;
+      let desc = buildDescTecnica(eqs, sv.ot || sv.id) || `Instalación de ${sv.tipoServicio}.`;
       if (d.referencia.trim()) desc += `\nReferencia del punto: ${d.referencia.trim()}`;
       if (d.observaciones.trim()) desc += `\n\nObservaciones: ${d.observaciones.trim()}`;
       if (!d.conforme) desc += `\n\nNota: el cliente indicó que NO quedó conforme.`;
@@ -278,6 +221,11 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
       if (modo === "firma" && d.firma) {
         try { firmaKey = await subirDataUrl(d.firma, `firma-${sv.ot || sv.codigoCliente}.png`, `redes/${sv.codigoCliente}`); }
         catch { firmaB64 = d.firma; aviso("La firma se guardó en este dispositivo (sin conexión al almacenamiento)"); }
+      }
+      let firmaTecnicoKey: string | undefined; let firmaTecnicoB64: string | undefined;
+      if (!d.firmaTecnicoAutorizada && d.firmaTecnico) {
+        try { firmaTecnicoKey = await subirDataUrl(d.firmaTecnico, `firma-tecnico-${sv.ot || sv.codigoCliente}.png`, `redes/${sv.codigoCliente}`); }
+        catch { firmaTecnicoB64 = d.firmaTecnico; }
       }
       const entry: HistorialRed = {
         id: uid(), fecha: hoyLocal(), tipo: "instalacion", tecnico: perfilNombre, descripcion: desc,
@@ -301,6 +249,8 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
         ...sv, equipos: eqs, historial: [...sv.historial, entry], estado: "activo", fechaInstalacion: hoyLocal(),
         tiempos: { ...sv.tiempos, fin: { fecha: ahora, ubicacion: ub || undefined } },
         estadoOrden: modo === "firma" ? "firmada" : "terminada", borrador: undefined,
+        firmaTecnicoAut: d.firmaTecnicoAutorizada ? true : undefined,
+        firmaTecnicoKey, firmaTecnico: firmaTecnicoB64,
       };
       const guardado = await guardar(final);
       onTerminado(guardado, enlace);
@@ -332,7 +282,7 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
       {d.paso === 1 && (
         <>
           {d.equipos.map(eq => (
-            <EquipoEditor key={eq.id} eq={eq} puedeBorrar={d.equipos.length > 1}
+            <EquipoEditor key={eq.id} tema="claro" eq={eq} puedeBorrar={d.equipos.length > 1}
               onChange={n => upd({ equipos: d.equipos.map(x => x.id === eq.id ? n : x) })}
               onDelete={() => upd({ equipos: d.equipos.filter(x => x.id !== eq.id) })} />
           ))}
@@ -367,6 +317,16 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
             <div className="text-base text-[#1c2340] mb-1.5">Firma de conformidad <span className="text-red-500">*</span></div>
             <SignaturePad value={d.firma || null} onChange={v => upd({ firma: v || undefined })} />
           </div>
+          <div>
+            <div className="text-base text-[#1c2340] mb-1.5">Firma del técnico</div>
+            <label className="flex items-center justify-between rounded-xl border border-[#e1e4ef] bg-[#f6f7fb] px-4 py-3 cursor-pointer mb-2">
+              <span className="text-base text-[#1c2340]">Firma autorizada <span className="text-xs text-slate-400">(usar mi firma registrada)</span></span>
+              <input type="checkbox" checked={!!d.firmaTecnicoAutorizada} onChange={e => { upd({ firmaTecnicoAutorizada: e.target.checked }); try { localStorage.setItem("zFirmaAut", e.target.checked ? "1" : "0"); } catch { /* */ } }} className="w-6 h-6" style={{ accentColor: NAVY }} />
+            </label>
+            {d.firmaTecnicoAutorizada
+              ? <FirmaAutPrev />
+              : <SignaturePad value={d.firmaTecnico || null} onChange={v => upd({ firmaTecnico: v || undefined })} />}
+          </div>
           <Galeria titulo="Fotos del cierre (opcional)" aviso={aviso} items={d.fotosCierre} onChange={v => upd({ fotosCierre: v })} />
         </>
       )}
@@ -390,6 +350,35 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
           <button disabled={ocupado} onClick={() => guardarAvance(2)} className="w-full py-2 font-semibold text-sky-600">Atrás</button>
         </div>
       )}
+    </div>
+  );
+}
+
+function Bitacora({ sv, perfilNombre, guardar }: { sv: ServicioRed; perfilNombre: string; guardar: (s: ServicioRed) => Promise<ServicioRed> }) {
+  const [t, setT] = useState("");
+  const [busy, setBusy] = useState(false);
+  const notas = sv.bitacora || [];
+  async function agregar() {
+    const texto = t.trim();
+    if (!texto) return;
+    setBusy(true);
+    try {
+      await guardar({ ...sv, bitacora: [...notas, { id: uid(), fecha: new Date().toISOString(), texto, autor: perfilNombre, tipo: "nota" }] });
+      setT("");
+    } finally { setBusy(false); }
+  }
+  return (
+    <div className={`${card} space-y-2.5`}>
+      <div className="font-bold text-[#1c2340]">📝 Observaciones de la orden</div>
+      <p className="text-xs text-slate-500">Anota cualquier inconveniente o cambio con el propietario. Se guarda con fecha y hora.</p>
+      {notas.map(n => (
+        <div key={n.id} className="border-l-2 border-[#d8dcec] pl-2.5">
+          <div className="text-[11px] text-slate-400">{new Date(n.fecha).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" })}{n.autor ? ` · ${n.autor}` : ""}{n.tipo && n.tipo !== "nota" ? ` · ${n.tipo === "reasignacion" ? "reasignación" : "estado"}` : ""}</div>
+          <div className="text-[15px] text-[#1c2340] whitespace-pre-wrap">{n.texto}</div>
+        </div>
+      ))}
+      <textarea className={inputCls} rows={2} maxLength={500} value={t} onChange={e => setT(e.target.value)} placeholder="Ej. El propietario pidió mover las cámaras a otro punto" />
+      <button disabled={busy || !t.trim()} onClick={agregar} className={btnPrimary} style={{ background: NAVY }}>{busy ? "Guardando..." : "Agregar observación"}</button>
     </div>
   );
 }
@@ -461,7 +450,7 @@ function Detalle({ sv, cot, perfilNombre, guardar, aviso, onBack, hidratar }: {
       <div className={card}><Stepper estado={estado} /></div>
 
       {/* Acción principal según el estado */}
-      {estado === "asignada" && <button disabled={busy} onClick={() => avanzar("en_camino", "camino")} className={btnPrimary} style={{ background: NAVY }}>{busy ? "Obteniendo ubicación..." : "🚗 Voy en camino"}</button>}
+      {(estado === "asignada" || estado === "reasignada") && <button disabled={busy} onClick={() => avanzar("en_camino", "camino")} className={btnPrimary} style={{ background: NAVY }}>{busy ? "Obteniendo ubicación..." : "🚗 Voy en camino"}</button>}
       {estado === "en_camino" && <button disabled={busy} onClick={() => avanzar("en_espera", "llegada")} className={btnPrimary} style={{ background: NAVY }}>{busy ? "Obteniendo ubicación..." : "📍 Llegué al sitio"}</button>}
       {estado === "en_espera" && <button disabled={busy} onClick={() => avanzar("en_proceso", "inicio")} className={btnPrimary} style={{ background: "#2f9e5b" }}>{busy ? "Iniciando..." : "▶ Iniciar trabajo"}</button>}
       {estado === "en_proceso" && <Asistente sv={sv} perfilNombre={perfilNombre} guardar={guardar} aviso={aviso} onTerminado={(_s, e) => { if (e) setEnlace(e); }} />}
@@ -486,6 +475,8 @@ function Detalle({ sv, cot, perfilNombre, guardar, aviso, onBack, hidratar }: {
           <button disabled={busy} onClick={pdf} className={btnPrimary} style={{ background: NAVY }}>{busy ? "Generando..." : "⬇ Descargar PDF"}</button>
         </div>
       )}
+      {ORDEN_PERMITE_BITACORA.includes(estado) && <Bitacora sv={sv} perfilNombre={perfilNombre} guardar={guardar} />}
+
       {estado === "terminada" && entradaFinal && (
         <button disabled={busy} onClick={pdf} className="w-full py-3 rounded-full font-semibold border-2" style={{ borderColor: NAVY, color: NAVY }}>⬇ Descargar PDF (sin firma)</button>
       )}
@@ -623,7 +614,7 @@ export function Panel({ perfilNombre, onLogout, offlineDemo = false }: { perfilN
     const refrescar = async () => {
       try {
         const c = await fetchCloud<ServicioRed[]>("zRedes");
-        if (activo && c) { const next = mezclar(redesRef.current, normalizar(c)); setRedes(next); lsSet("zRedes", next); }
+        if (activo && c) { const next = mezclarRedes(redesRef.current, normalizar(c), { soloNube: true }); setRedes(next); lsSet("zRedes", next); }
         const cc = await fetchCloud<Cotizacion[]>("zCotizaciones");
         if (activo && cc) { const lista = arr<Cotizacion>(cc); setCots(lista); lsSet("zCotizaciones", lista); }
       } catch { /* sin conexión */ }
@@ -665,7 +656,7 @@ export function Panel({ perfilNombre, onLogout, offlineDemo = false }: { perfilN
   const guardar = useCallback(async (upd: ServicioRed): Promise<ServicioRed> => {
     const nuevo = { ...upd, ultimaModificacion: new Date().toISOString() };
     let base = redesRef.current;
-    if (!offlineDemo) { try { const c = await fetchCloud<ServicioRed[]>("zRedes"); if (c) base = mezclar(base, normalizar(c)); } catch { /* usa lo local */ } }
+    if (!offlineDemo) { try { const c = await fetchCloud<ServicioRed[]>("zRedes"); if (c) base = mezclarRedes(base, normalizar(c), { soloNube: true, conservar: nuevo.id }); } catch { /* usa lo local */ } }
     const next = base.some(r => r.id === nuevo.id) ? base.map(r => r.id === nuevo.id ? nuevo : r) : [nuevo, ...base];
     setRedes(next); redesRef.current = next; lsSet("zRedes", next);
     if (!offlineDemo) persist("zRedes", next);
@@ -679,6 +670,8 @@ export function Panel({ perfilNombre, onLogout, offlineDemo = false }: { perfilN
       fotos: await Promise.all((h.fotos || []).map(async f => ({ ...f, data: await dataUrlDe(f) }))),
       firma: h.firmaKey ? await dataUrlDe({ key: h.firmaKey }) : h.firma,
     }))),
+    firmaTecnico: s.firmaTecnicoAut ? await firmaAutorizada().catch(() => undefined)
+      : s.firmaTecnicoKey ? await dataUrlDe({ key: s.firmaTecnicoKey }).catch(() => undefined) : s.firmaTecnico,
   }), []);
 
   const ordenes = redes.filter(r => r.estadoOrden)
