@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Bell, X, Menu, Plus, Trash2, Edit2, Copy, Search, LogOut, Users, Shield,
   AlertTriangle, CheckCircle2, Upload, Download, FileText, Package,
-  TrendingUp, Wallet, DollarSign, Wrench, ClipboardList, Eye, EyeOff,
+  TrendingUp, Wallet, DollarSign, Wrench, Eye, EyeOff,
   RefreshCw, Info, Wifi
 } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
@@ -238,7 +238,6 @@ const MODULOS: { id: keyof Permisos; label: string; icon: React.ReactNode }[] = 
   { id: "redes", label: "Redes", icon: <Wifi size={14} /> },
   { id: "gastos", label: "Gastos", icon: <DollarSign size={14} /> },
   { id: "pagos", label: "Pagos", icon: <DollarSign size={14} /> },
-  { id: "hojatrabajo", label: "Hoja de Trabajo", icon: <ClipboardList size={14} /> },
   { id: "mantenimiento", label: "Mantenimiento", icon: <Wrench size={14} /> },
   { id: "usuarios", label: "Usuarios", icon: <Users size={14} /> },
 ];
@@ -252,7 +251,6 @@ const TABS = [
   { id: "redes", label: "Redes", icon: "🌐" },
   { id: "gastos", label: "Gastos", icon: "💰" },
   { id: "pagos", label: "Pagos", icon: "💳" },
-  { id: "hojatrabajo", label: "Hoja de Trabajo", icon: "📄" },
   { id: "mantenimiento", label: "Mantenimiento", icon: "🔧" },
   { id: "usuarios", label: "Usuarios", icon: "👥" },
 ];
@@ -1969,166 +1967,6 @@ function PagosPage({ pagos, setPagos, showToast, addNotif }: {
           </div>
         </div>
       </Modal>
-    </div>
-  );
-}
-
-// ─── PAGE: HOJA DE TRABAJO ────────────────────────────────────────────────────
-
-const HT_SERVICIOS = ["Instalación CCTV","Redes/Cableado","Configuración NVR/DVR","Soporte Técnico","Mantenimiento","Reparación","Biométrico","Control de Acceso"];
-
-function HojaTrabajoPage({ cotizaciones, showToast, addNotif }: {
-  cotizaciones: Cotizacion[]; showToast: (m: string) => void;
-  addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
-}) {
-  const [f, setF] = useState({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" });
-  const [servicios, setServicios] = useState<string[]>([]);
-  const [desc, setDesc] = useState("");
-  const [obs, setObs] = useState("");
-  const [equipos, setEquipos] = useState<{ id: string; desc: string; marca: string; spec: string }[]>([]);
-  const [patron, setPatron] = useState<number[]>([]);
-  const [saved, setSaved] = useState<(typeof f & { servicios: string[]; desc: string; obs: string; id: string })[]>(ls("zHojas", []));
-
-  function buscarCot(val: string) {
-    setF(x => ({ ...x, orden: val }));
-    const cot = cotizaciones.find(c => c.whatsapp?.replace(/\D/g, "").includes(val.replace(/\D/g, "")) || c.id.toLowerCase().includes(val.toLowerCase()) || c.cliente.toLowerCase().includes(val.toLowerCase()));
-    if (cot) { setF(x => ({ ...x, nombre: cot.cliente, telefono: cot.whatsapp, direccion: cot.ubicacion })); showToast("✅ Datos cargados desde cotización"); }
-  }
-
-  function toggleSvc(s: string) { setServicios(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]); }
-  function addEquipo() { setEquipos([...equipos, { id: uid(), desc: "", marca: "", spec: "" }]); }
-  function updEquipo(id: string, k: string, v: string) { setEquipos(equipos.map(e => e.id === id ? { ...e, [k]: v } : e)); }
-  function togglePatron(n: number) { setPatron(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]); }
-
-  function guardar() {
-    if (!f.nombre) { showToast("⚠️ El cliente es requerido"); return; }
-    const hoja = { ...f, servicios, desc, obs, id: uid() };
-    const next = [hoja, ...saved];
-    setSaved(next); persist("zHojas", next); showToast("✅ Hoja guardada");
-    addNotif({ tipo: "success", titulo: "Hoja de trabajo guardada", mensaje: `${hoja.nombre} — ${hoja.fecha}`, modulo: "hojatrabajo" });
-  }
-
-  function limpiar() { setF({ nombre: "", direccion: "", telefono: "", email: "", orden: "", fecha: today(), tecnico: "" }); setServicios([]); setDesc(""); setObs(""); setEquipos([]); setPatron([]); }
-
-  return (
-    <div className="max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div><h2 className="text-xl font-black text-white">Hoja de Trabajo / Servicio</h2><p className="text-sm text-[#8090a8] mt-0.5">Genera hojas de servicio técnico</p></div>
-        <div className="flex gap-2">
-          <Btn onClick={guardar}>💾 Guardar</Btn>
-          <Btn variant="ghost" onClick={limpiar}><RefreshCw size={13} /> Limpiar</Btn>
-          <Btn variant="ghost" onClick={() => window.print()}>🖨️ Imprimir</Btn>
-        </div>
-      </div>
-
-      <Card>
-        <CardTitle>Datos del Cliente</CardTitle>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <Input label="Buscar por Teléfono o N° Cotización" value={f.orden} onChange={e => buscarCot(e.target.value)} placeholder="Tel. o COT-0001" />
-            <div className="text-[10px] text-[#8090a8] mt-1">Busca y carga datos de una cotización existente</div>
-          </div>
-          <Input label="Fecha" type="date" value={f.fecha} onChange={e => setF(x => ({ ...x, fecha: e.target.value }))} />
-          <Input label="Nombre Cliente *" value={f.nombre} onChange={e => setF(x => ({ ...x, nombre: e.target.value }))} />
-          <Input label="Teléfono" value={f.telefono} onChange={e => setF(x => ({ ...x, telefono: e.target.value }))} />
-          <Input label="Dirección" value={f.direccion} onChange={e => setF(x => ({ ...x, direccion: e.target.value }))} />
-          <Input label="Técnico" value={f.tecnico} onChange={e => setF(x => ({ ...x, tecnico: e.target.value }))} />
-        </div>
-      </Card>
-
-      <Card>
-        <CardTitle>Servicios Realizados</CardTitle>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {HT_SERVICIOS.map(s => (
-            <label key={s} className={`flex items-center gap-2 p-2.5 rounded-xl cursor-pointer border transition-all text-sm
-              ${servicios.includes(s) ? "border-[#0ea5c8] bg-[#0ea5c8]/10 text-white" : "border-[#1a2235] bg-[#060810] text-[#c8d8e8]"}`}>
-              <input type="checkbox" checked={servicios.includes(s)} onChange={() => toggleSvc(s)} className="accent-[#0ea5c8]" />
-              <span className="text-xs leading-tight">{s}</span>
-            </label>
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <CardTitle>Descripción del Trabajo</CardTitle>
-        <Textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Describe detalladamente el trabajo realizado..." className="min-h-[90px]" />
-      </Card>
-
-      <Card>
-        <div className="flex items-center justify-between mb-3">
-          <CardTitle>Equipos Instalados</CardTitle>
-          <Btn size="sm" onClick={addEquipo}><Plus size={12} /> Equipo</Btn>
-        </div>
-        {equipos.length === 0 ? <p className="text-xs text-[#8090a8]">Sin equipos agregados</p> : (
-          <div className="space-y-2">
-            {equipos.map(e => (
-              <div key={e.id} className="grid grid-cols-[1fr_1fr_1fr_28px] gap-2 items-center">
-                <input value={e.desc} onChange={ev => updEquipo(e.id, "desc", ev.target.value)} placeholder="Descripción"
-                  className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
-                <input value={e.marca} onChange={ev => updEquipo(e.id, "marca", ev.target.value)} placeholder="Marca"
-                  className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
-                <input value={e.spec} onChange={ev => updEquipo(e.id, "spec", ev.target.value)} placeholder="Especificación"
-                  className="bg-[#060810] border border-[#1a2235] rounded-lg px-2 py-1.5 text-xs text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8]" />
-                <button onClick={() => setEquipos(equipos.filter(x => x.id !== e.id))} className="text-red-400 hover:bg-red-500/10 rounded w-7 h-7 flex items-center justify-center"><X size={12} /></button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      <Card>
-        <CardTitle>Patrón de Desbloqueo (Opcional)</CardTitle>
-        <div className="flex gap-8 flex-wrap">
-          <div>
-            <p className="text-xs text-[#8090a8] mb-3">Selecciona en orden:</p>
-            <div className="grid grid-cols-3 gap-2">
-              {[1,2,3,4,5,6,7,8,9].map(n => (
-                <button key={n} onClick={() => togglePatron(n)}
-                  className={`w-12 h-12 rounded-xl text-base font-black border-2 transition-all
-                    ${patron.includes(n) ? "border-[#0ea5c8] bg-[#0ea5c8]/20 text-white" : "border-[#1a2235] bg-[#060810] text-[#8090a8]"}`}>
-                  {patron.includes(n) ? <span className="text-[#0ea5c8]">{patron.indexOf(n) + 1}</span> : n}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setPatron([])} className="mt-2 w-full text-xs text-[#8090a8] py-1 hover:text-white transition-colors">↺ Limpiar patrón</button>
-          </div>
-          <div>
-            <p className="text-xs text-[#8090a8] mb-3">Vista previa:</p>
-            <div className="grid grid-cols-3 gap-1.5 bg-[#060810] p-3 rounded-xl border border-[#1a2235]">
-              {[1,2,3,4,5,6,7,8,9].map(n => (
-                <div key={n} className={`w-9 h-9 rounded-full border flex items-center justify-center text-[10px] font-bold
-                  ${patron.includes(n) ? "border-[#0ea5c8] bg-[#0ea5c8]/20 text-[#0ea5c8]" : "border-[#1a2235] text-[#3a4a5a]"}`}>
-                  {patron.includes(n) ? patron.indexOf(n) + 1 : n}
-                </div>
-              ))}
-            </div>
-            {patron.length > 0 && <div className="text-xs text-[#8090a8] mt-2">Secuencia: <span className="text-[#0ea5c8] font-bold">{patron.join(" → ")}</span></div>}
-          </div>
-        </div>
-      </Card>
-
-      <Card>
-        <CardTitle>Observaciones y Cláusulas</CardTitle>
-        <Textarea value={obs} onChange={e => setObs(e.target.value)} placeholder="Garantía, términos técnicos, observaciones especiales..." className="min-h-[80px]" />
-      </Card>
-
-      {saved.length > 0 && (
-        <Card>
-          <CardTitle>Hojas Guardadas</CardTitle>
-          <div className="space-y-2">
-            {saved.slice(0, 5).map(h => (
-              <div key={h.id} className="flex items-center justify-between p-3 bg-[#060810] rounded-xl border border-[#1a2235]">
-                <div>
-                  <div className="text-sm font-semibold text-white">{h.nombre}</div>
-                  <div className="text-xs text-[#8090a8]">{h.fecha} · {h.servicios.join(", ") || "Sin servicios"}</div>
-                </div>
-                <button onClick={() => { const n = saved.filter(x => x.id !== h.id); setSaved(n); persist("zHojas", n); showToast("🗑️ Eliminada"); }}
-                  className="text-red-400 hover:bg-red-500/10 p-1.5 rounded"><Trash2 size={13} /></button>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
@@ -4231,7 +4069,6 @@ export default function App() {
       case "inventario": return <InventarioPage inventario={inventario} setInventario={setInventario} {...props} />;
       case "gastos": return <GastosPage gastos={gastos} setGastos={setGastos} {...props} />;
       case "pagos": return <PagosPage pagos={pagos} setPagos={setPagos} {...props} />;
-      case "hojatrabajo": return <HojaTrabajoPage cotizaciones={cotizaciones} {...props} />;
       case "mantenimiento": return <MantenimientoPage mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} {...props} />;
       case "redes": return <RedesPage redes={redes} setRedes={setRedes} cotizaciones={cotizaciones} ventas={ventas} currentUser={currentUser} {...props} />;
       case "usuarios": return <UsuariosPage users={users} setUsers={setUsers} currentUser={currentUser} {...props} />;
