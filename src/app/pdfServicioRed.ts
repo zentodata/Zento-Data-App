@@ -437,9 +437,11 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
   if (s.firmaTecnico) {
     try {
       const d = await loadImageDims(s.firmaTecnico);
-      const maxW = sigW - 20, maxH = 56;
+      // 20 % más pequeña y centrada sobre la línea, apoyada con un leve cruce para que se vea natural
+      const maxW = (sigW - 20) * 0.8, maxH = 56 * 0.8;
       const k = Math.min(maxW / d.w, maxH / d.h);
-      doc.addImage(s.firmaTecnico, "PNG", marginX + sigW + 40, y - 2 - d.h * k, d.w * k, d.h * k);
+      const w = d.w * k, h = d.h * k;
+      doc.addImage(s.firmaTecnico, "PNG", marginX + sigW + 30 + (sigW - w) / 2, y + 3 - h, w, h);
     } catch { /* firma no legible, se omite */ }
   }
   doc.line(marginX + sigW + 30, y, marginX + sigW * 2 + 30, y);

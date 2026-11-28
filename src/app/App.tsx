@@ -2452,13 +2452,13 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
   }
 
   // ── Estado, reasignación y bitácora de la orden ──
-  const [reasignar, setReasignar] = useState<{ fecha: string; motivo: string } | null>(null);
+  const [reasignar, setReasignar] = useState<{ id: string; fecha: string; motivo: string } | null>(null);
   const [notaBitacora, setNotaBitacora] = useState("");
   const nota = (texto: string, tipo: BitacoraOrden["tipo"] = "nota"): BitacoraOrden => ({ id: uid(), fecha: new Date().toISOString(), texto, autor: currentUser.nombre, tipo });
 
   async function cambiarEstadoOrden(sv: ServicioRed, nuevo: EstadoOrden) {
     if (nuevo === sv.estadoOrden) return;
-    if (nuevo === "reasignada") { setReasignar({ fecha: sv.fechaProgramada || ahoraLocal(), motivo: "" }); return; }
+    if (nuevo === "reasignada") { setReasignar({ id: sv.id, fecha: sv.fechaProgramada || ahoraLocal(), motivo: "" }); return; }
     await editarServicio(sv.id, r => ({
       ...aplicarEstadoOrden(r, nuevo),
       bitacora: [...(r.bitacora || []), nota(`Estado cambiado desde el CRM: ${ORDEN_LABEL[r.estadoOrden as EstadoOrden]} → ${ORDEN_LABEL[nuevo]}`, "estado")],
@@ -2467,17 +2467,19 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
   }
 
   async function confirmarReasignacion() {
-    if (!detalle || !reasignar) return;
+    if (!reasignar) return;
+    const sv = redesRef.current.find(r => r.id === reasignar.id);
+    if (!sv) { setReasignar(null); return; }
     if (!reasignar.fecha) { showToast("⚠️ Elige la nueva fecha y hora"); return; }
     const { fecha, motivo } = reasignar;
-    await editarServicio(detalle.id, r => ({
+    await editarServicio(sv.id, r => ({
       ...aplicarEstadoOrden(r, "reasignada"),
       fechaProgramada: fecha, fechaInstalacion: fecha.slice(0, 10), estado: "programado" as EstadoRed,
       bitacora: [...(r.bitacora || []), nota(`Reasignada para ${new Date(fecha).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" })}${motivo.trim() ? ` — ${motivo.trim()}` : ""}`, "reasignacion")],
     }));
     setReasignar(null);
     showToast("🔁 Orden reasignada: el técnico la verá desde el inicio");
-    addNotif({ tipo: "info", titulo: "Orden reasignada", mensaje: `${otLabel(detalle)} — ${detalle.clienteNombre}`, modulo: "redes" });
+    addNotif({ tipo: "info", titulo: "Orden reasignada", mensaje: `${otLabel(sv)} — ${sv.clienteNombre}`, modulo: "redes" });
   }
 
   async function agregarNota(sv: ServicioRed) {
@@ -3257,17 +3259,6 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
       </Modal>
 
       {/* ── Modal: Ficha del servicio ── */}
-      <Modal open={!!reasignar} onClose={() => setReasignar(null)} title="Reasignar orden" width="max-w-sm" persistent>
-        {reasignar && (
-          <div className="space-y-3">
-            <p className="text-xs text-[#8090a8]">La orden se vuelve a agendar para la nueva fecha y el técnico la ve desde el inicio del flujo.</p>
-            <Input label="Nueva fecha y hora *" type="datetime-local" value={reasignar.fecha} onChange={e => setReasignar({ ...reasignar, fecha: e.target.value })} />
-            <Input label="Motivo (opcional)" value={reasignar.motivo} onChange={e => setReasignar({ ...reasignar, motivo: e.target.value })} placeholder="Ej. el propietario pidió cambiar el día" />
-            <div className="flex justify-end gap-2"><Btn variant="ghost" onClick={() => setReasignar(null)}>Cancelar</Btn><Btn onClick={confirmarReasignacion}>🔁 Reasignar</Btn></div>
-          </div>
-        )}
-      </Modal>
-
       <Modal open={!!detalle} onClose={() => setDetalle(null)} title={detalle ? `${otLabel(detalle)} — ${detalle.tipoServicio}` : ""} width="max-w-lg">
         {detalle && (
           <div className="space-y-4 text-sm">
@@ -3323,7 +3314,7 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
                     className="flex-1 min-w-0 bg-[#0d1220] border border-[#1a2235] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-violet-400">
                     {ORDEN_ESTADOS_TODOS.map(x => <option key={x} value={x}>{ORDEN_LABEL[x]}</option>)}
                   </select>
-                  <button type="button" onClick={() => setReasignar({ fecha: detalle.fechaProgramada || ahoraLocal(), motivo: "" })}
+                  <button type="button" onClick={() => setReasignar({ id: detalle.id, fecha: detalle.fechaProgramada || ahoraLocal(), motivo: "" })}
                     className="shrink-0 px-2 py-1 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10">🔁 Reasignar</button>
                 </div>
                 {detalle.fechaProgramada && <div><span className="text-[#8090a8]">Programada:</span> <span className="text-white">{new Date(detalle.fechaProgramada).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" })}</span></div>}
@@ -3462,6 +3453,17 @@ export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, 
       </Modal>
 
       {/* ── Modal: Nueva modificación ── */}
+      <Modal open={!!reasignar} onClose={() => setReasignar(null)} title="Reasignar orden" width="max-w-sm" persistent>
+        {reasignar && (
+          <div className="space-y-3">
+            <p className="text-xs text-[#8090a8]">La orden se vuelve a agendar para la nueva fecha y el técnico la ve desde el inicio del flujo.</p>
+            <Input label="Nueva fecha y hora *" type="datetime-local" value={reasignar.fecha} onChange={e => setReasignar({ ...reasignar, fecha: e.target.value })} />
+            <Input label="Motivo (opcional)" value={reasignar.motivo} onChange={e => setReasignar({ ...reasignar, motivo: e.target.value })} placeholder="Ej. el propietario pidió cambiar el día" />
+            <div className="flex justify-end gap-2"><Btn variant="ghost" onClick={() => setReasignar(null)}>Cancelar</Btn><Btn onClick={confirmarReasignacion}>🔁 Reasignar</Btn></div>
+          </div>
+        )}
+      </Modal>
+
       <Modal open={modModal} onClose={() => { setModModal(false); setEditingHistId(null); }} title={detalle ? `${editingHistId ? "Editar registro" : "Nueva modificación"} — ${detalle.codigoCliente}` : ""} width="max-w-xl" persistent>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
