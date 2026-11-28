@@ -18,9 +18,11 @@ import {
 } from "@/app/cloudSync";
 import { buildHubSummary } from "@/app/hubSummary";
 import { SignaturePad } from "@/app/SignaturePad";
-import type { EstadoOrden, TiemposOrden, BorradorOrden } from "@/app/redesCatalogo";
-import { ORDEN_LABEL, ORDEN_PASOS, comoLlegarUrl, waUrl } from "@/app/redesCatalogo";
-import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, borrarArchivo, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma } from "@/app/r2";
+import type { EstadoOrden, TiemposOrden, BorradorOrden, BitacoraOrden, CategoriaEquipo } from "@/app/redesCatalogo";
+import { ORDEN_LABEL, ORDEN_ESTADOS_TODOS, ORDEN_SIN_EJECUTAR, ORDEN_PERMITE_BITACORA, pasosDeOrden, comoLlegarUrl, waUrl,
+  buildDescTecnica, equipoCompleto, equipoIncompleto, cerrarEquipo, aplicarEstadoOrden, mezclarRedes, tieneCredenciales, CATEGORIAS } from "@/app/redesCatalogo";
+import { EquipoEditor } from "@/app/EquipoEditor";
+import { subirArchivo, subirDataUrl, urlDe, dataUrlDe, borrarArchivo, crearSolicitudFirma, estadoFirmas, urlEnlaceFirma, firmaAutorizada } from "@/app/r2";
 import { requestNotifPermission, notifyBrowser } from "@/app/browserNotify";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -74,7 +76,8 @@ export type EquipoRed = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
   ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string;
   garantia?: string;
-  categoria?: "redes" | "camaras"; tipoEquipo?: string; cantidad?: number; marcaOtra?: string;
+  categoria?: CategoriaEquipo; tipoEquipo?: string; cantidad?: number; marcaOtra?: string;
+  usuario?: string; clave?: string; ssid?: string; claveWifi?: string; // accesos administrativos (solo visibles con sesión)
 };
 export type UbicacionRed = { lat: number; lng: number; precision?: number; fecha: string }; // GPS al crear el reporte
 export type ArchivoRed = { id: string; nombre: string; data: string; key?: string }; // key = ruta en Cloudflare R2 (data queda vacío)
@@ -114,6 +117,8 @@ export type ServicioRed = {
   cotizacionId?: string; tecnicoAsignado?: string; notasOrden?: string;
   tiempos?: TiemposOrden;
   borrador?: BorradorOrden;
+  bitacora?: BitacoraOrden[]; // observaciones / incidencias / reasignaciones
+  firmaTecnico?: string; firmaTecnicoKey?: string; firmaTecnicoAut?: boolean; // firma del técnico en el acta
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
@@ -154,6 +159,7 @@ const normRedes = (list: unknown): ServicioRed[] => asignarOT(arr<ServicioRed>(l
   fechaInstalacion: r.fechaInstalacion || "",
   ultimaModificacion: r.ultimaModificacion || "",
   equipos: arr<EquipoRed>(r.equipos),
+  bitacora: arr<BitacoraOrden>(r.bitacora),
   historial: arr<HistorialRed>(r.historial).map(h => ({ ...h, fecha: h.fecha || "", fotos: arr<ArchivoRed>(h.fotos), documentos: arr<ArchivoRed>(h.documentos), equiposRevisados: arr<string>(h.equiposRevisados) })),
 }));
 class PageBoundary extends Component<{ children: ReactNode }, { err: Error | null }> {
@@ -268,23 +274,9 @@ const TIPOS_SERVICIO_RED = [
   "WiFi Mesh", "Cableado estructurado", "Router", "Switch", "Access Point",
   "Enlace inalámbrico", "VPN", "Red empresarial", "Administración remota",
   "Mantenimiento de red", "Cámaras IP", "NVR", "Otros servicios de infraestructura",
+  "Biométrico / Control de acceso", "Mantenimiento DVR/NVR", "Cambio de grabador", "Cámara adicional", "Instalación de software", "Venta de licencias",
 ];
-const MARCAS_REDES = ["TP-Link", "Ubiquiti", "MikroTik", "Cisco", "D-Link", "Huawei", "Netgear", "ASUS", "Tenda", "Mercusys"];
-const MARCAS_CAMARAS = ["Hikvision", "Dahua", "Uniview", "EZVIZ", "Imou", "TP-Link (Tapo/VIGI)", "Reolink", "Axis", "Hanwha", "Ubiquiti"];
-const TIPOS_EQUIPO_REDES = ["Router", "Switch", "Access Point", "Mesh (Deco / nodo)", "Firewall", "Repetidor", "Antena / Enlace", "Otro"];
-const TIPOS_EQUIPO_CAMARAS = ["Cámara bala", "Cámara domo", "Cámara PTZ", "Cámara WiFi", "DVR / XVR", "NVR", "Otro"];
 const emptyEquipo = (): EquipoRed => ({ id: uid(), modelo: "", marca: "", serial: "", mac: "", ubicacion: "", categoria: undefined, tipoEquipo: "", cantidad: 1 });
-const marcaFinal = (e: EquipoRed) => (e.marca === "Otra" ? (e.marcaOtra || "").trim() : e.marca || "");
-function buildDescAuto(tipoServicio: string, equipos: EquipoRed[]): string {
-  const items = equipos.filter(e => e.categoria && (e.modelo.trim() || e.marca)).map(e => {
-    const q = (e.cantidad || 1) > 1 ? `${e.cantidad} ` : "";
-    const t = (e.tipoEquipo && e.tipoEquipo !== "Otro" ? e.tipoEquipo : e.categoria === "camaras" ? "cámara" : "equipo").toLowerCase();
-    return `${q}${t} ${marcaFinal(e)} ${e.modelo.trim()}`.replace(/\s+/g, " ").trim() + (e.ubicacion ? ` (${e.ubicacion})` : "");
-  });
-  if (!items.length) return "";
-  const hayCam = equipos.some(e => e.categoria === "camaras");
-  return `Instalación de ${items.join(", ")}. Se configuró${items.length > 1 ? "n los equipos" : " el equipo"} y se realizaron pruebas de ${hayCam ? "video y " : ""}funcionamiento. Entrega conforme al cliente.`;
-}
 
 const HIST_TIPO_LABELS: Record<HistorialRed["tipo"], string> = {
   instalacion: "Instalación", modificacion: "Modificación", reemplazo: "Reemplazo",
@@ -2283,13 +2275,15 @@ async function hidratarServicio(sv: ServicioRed): Promise<ServicioRed> {
       fotos: await Promise.all((h.fotos || []).map(async f => ({ ...f, data: await dataUrlDe(f) }))),
       firma: h.firmaKey ? await dataUrlDe({ key: h.firmaKey }) : h.firma,
     }))),
+    firmaTecnico: sv.firmaTecnicoAut ? await firmaAutorizada().catch(() => undefined)
+      : sv.firmaTecnicoKey ? await dataUrlDe({ key: sv.firmaTecnicoKey }).catch(() => undefined) : sv.firmaTecnico,
   };
 }
 const carpetaMes = () => `redes/adjuntos/${today().slice(0, 7)}`;
 
 // ─── PAGE: REDES (Parte 1 — dashboard + tabla, formularios en la siguiente parte) ──
 
-function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToast, addNotif }: {
+export function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToast, addNotif }: {
   redes: ServicioRed[]; setRedes: (r: ServicioRed[]) => void; cotizaciones: Cotizacion[]; ventas: Venta[];
   currentUser: User; showToast: (m: string) => void; addNotif: (n: Omit<Notif, "id" | "fecha" | "leida">) => void;
 }) {
@@ -2341,7 +2335,7 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     : [];
 
   // Las órdenes aún sin ejecutar viven en su propio panel; pasan a la tabla al terminarse
-  const SIN_EJECUTAR = ["asignada", "en_camino", "en_espera", "en_proceso"];
+  const SIN_EJECUTAR: EstadoOrden[] = [...ORDEN_SIN_EJECUTAR, "en_proceso"];
   const ordenesActivas = redes.filter(r => r.estadoOrden && r.estadoOrden !== "firmada")
     .sort((a, b) => (a.fechaProgramada || "").localeCompare(b.fechaProgramada || ""));
   const [ordenesAbierto, setOrdenesAbierto] = useState(false);
@@ -2423,15 +2417,74 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     return `ZD-${String(next).padStart(4, "0")}`;
   }
 
+  // Órdenes eliminadas desde este CRM: no deben «resucitar» al mezclar con la nube
+  const borradasRef = useRef<Set<string>>(new Set((() => { try { return JSON.parse(localStorage.getItem("zRedesBorradas") || "[]"); } catch { return []; } })()));
+  const marcarBorrada = (id: string) => { borradasRef.current.add(id); try { localStorage.setItem("zRedesBorradas", JSON.stringify([...borradasRef.current].slice(-300))); } catch { /* */ } };
+
+  /** Aplica un cambio a un servicio partiendo de lo más reciente de la nube (evita pisar lo que el técnico acaba de guardar) */
+  async function editarServicio(id: string, fn: (r: ServicioRed) => ServicioRed): Promise<ServicioRed[]> {
+    let base = redesRef.current;
+    try {
+      const cloud = await fetchCloud<ServicioRed[]>("zRedes");
+      if (cloud) base = mezclarRedes(base, normRedes(cloud), { ignorar: borradasRef.current });
+    } catch { /* sin conexión: se usa la copia local */ }
+    const next = base.map(r => r.id === id ? { ...fn(r), ultimaModificacion: new Date().toISOString() } : r);
+    setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
+    setDetalle(d => d ? next.find(r => r.id === d.id) || d : d);
+    return next;
+  }
+
   async function eliminarServicio(sv: ServicioRed) {
     if (!confirm(`¿Eliminar ${otLabel(sv)} — ${sv.clienteNombre}?\n\nSe borrarán también su historial, fotos y firmas. Esta acción no se puede deshacer.`)) return;
     const keys = sv.historial.flatMap(h => [...(h.fotos || []), ...(h.documentos || [])].map(a => a.key).concat(h.firmaKey)).filter((k): k is string => !!k);
-    const next = redes.filter(r => r.id !== sv.id);
+    marcarBorrada(sv.id);
+    let base = redesRef.current;
+    try {
+      const cloud = await fetchCloud<ServicioRed[]>("zRedes");
+      if (cloud) base = mezclarRedes(base, normRedes(cloud), { ignorar: borradasRef.current });
+    } catch { /* sin conexión */ }
+    const next = base.filter(r => r.id !== sv.id);
     setRedes(next); persist("zRedes", next); lsSet("zRedes", next);
     setDetalle(null);
     showToast("🗑️ Servicio eliminado");
     addNotif({ tipo: "warning", titulo: "Servicio eliminado", mensaje: `${otLabel(sv)} — ${sv.clienteNombre}`, modulo: "redes" });
     await Promise.all(keys.map(k => borrarArchivo(k))); // limpia los archivos en R2 (best-effort)
+  }
+
+  // ── Estado, reasignación y bitácora de la orden ──
+  const [reasignar, setReasignar] = useState<{ fecha: string; motivo: string } | null>(null);
+  const [notaBitacora, setNotaBitacora] = useState("");
+  const nota = (texto: string, tipo: BitacoraOrden["tipo"] = "nota"): BitacoraOrden => ({ id: uid(), fecha: new Date().toISOString(), texto, autor: currentUser.nombre, tipo });
+
+  async function cambiarEstadoOrden(sv: ServicioRed, nuevo: EstadoOrden) {
+    if (nuevo === sv.estadoOrden) return;
+    if (nuevo === "reasignada") { setReasignar({ fecha: sv.fechaProgramada || ahoraLocal(), motivo: "" }); return; }
+    await editarServicio(sv.id, r => ({
+      ...aplicarEstadoOrden(r, nuevo),
+      bitacora: [...(r.bitacora || []), nota(`Estado cambiado desde el CRM: ${ORDEN_LABEL[r.estadoOrden as EstadoOrden]} → ${ORDEN_LABEL[nuevo]}`, "estado")],
+    }));
+    showToast(`✅ Estado: ${ORDEN_LABEL[nuevo]}`);
+  }
+
+  async function confirmarReasignacion() {
+    if (!detalle || !reasignar) return;
+    if (!reasignar.fecha) { showToast("⚠️ Elige la nueva fecha y hora"); return; }
+    const { fecha, motivo } = reasignar;
+    await editarServicio(detalle.id, r => ({
+      ...aplicarEstadoOrden(r, "reasignada"),
+      fechaProgramada: fecha, fechaInstalacion: fecha.slice(0, 10), estado: "programado" as EstadoRed,
+      bitacora: [...(r.bitacora || []), nota(`Reasignada para ${new Date(fecha).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" })}${motivo.trim() ? ` — ${motivo.trim()}` : ""}`, "reasignacion")],
+    }));
+    setReasignar(null);
+    showToast("🔁 Orden reasignada: el técnico la verá desde el inicio");
+    addNotif({ tipo: "info", titulo: "Orden reasignada", mensaje: `${otLabel(detalle)} — ${detalle.clienteNombre}`, modulo: "redes" });
+  }
+
+  async function agregarNota(sv: ServicioRed) {
+    const t = notaBitacora.trim();
+    if (!t) return;
+    await editarServicio(sv.id, r => ({ ...r, bitacora: [...(r.bitacora || []), nota(t)] }));
+    setNotaBitacora("");
   }
 
   // ── Firma remota por enlace ──
@@ -2514,16 +2567,9 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
         if (!activo || !cloud) return;
         const nube = normRedes(cloud);
         const actuales = redesRef.current;
-        const porId = new Map(actuales.map(r => [r.id, r]));
-        let cambio = false;
-        const nuevos: ServicioRed[] = [];
-        for (const c of nube) {
-          const l = porId.get(c.id);
-          if (!l) { nuevos.push(c); cambio = true; }
-          else if ((c.ultimaModificacion || "") > (l.ultimaModificacion || "")) { porId.set(c.id, c); cambio = true; }
-        }
-        if (!cambio) return;
-        const next = [...nuevos, ...actuales.map(r => porId.get(r.id) || r)];
+        const next = mezclarRedes(actuales, nube, { ignorar: borradasRef.current });
+        const igual = next.length === actuales.length && next.every((r, i) => r === actuales[i]);
+        if (igual) return;
         setRedes(next); lsSet("zRedes", next);
         setDetalle(d => d ? next.find(r => r.id === d.id) || d : d);
       } catch { /* sin conexión: se reintenta */ }
@@ -2595,9 +2641,9 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
   // La descripción se arma sola a partir de los equipos, hasta que el técnico la edite a mano
   useEffect(() => {
     if (!modal || descManual) return;
-    const auto = buildDescAuto(form.tipoServicio, equipos);
+    const auto = buildDescTecnica(equipos, form.clienteNombre + form.fechaInstalacion);
     setForm(f => f.descripcion === auto ? f : { ...f, descripcion: auto });
-  }, [equipos, form.tipoServicio, modal, descManual]);
+  }, [equipos, form.tipoServicio, form.clienteNombre, modal, descManual]);
 
   function elegirCotizacion(id: string) {
     const c = cotizaciones.find(x => x.id === id);
@@ -2643,11 +2689,8 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
     if (!form.tipoServicio) { showToast("⚠️ El tipo de servicio es requerido"); return; }
     const codigo = nextCodigoCliente(form.clienteNombre);
     const ahora = new Date().toISOString();
-    const incompleto = equipos.find(e => e.categoria && marcaFinal(e) && !e.modelo.trim());
-    if (incompleto) { showToast("⚠️ Falta el modelo de un equipo instalado"); return; }
-    const equiposValidos = equipos
-      .filter(e => e.modelo.trim() || (e.categoria && marcaFinal(e)))
-      .map(e => ({ ...e, marca: marcaFinal(e), marcaOtra: undefined, modelo: e.modelo.trim() || e.tipoEquipo || "" }));
+    if (equipos.some(equipoIncompleto)) { showToast("⚠️ Completa el tipo, la marca y el modelo de cada equipo (o quítalo)"); return; }
+    const equiposValidos = equipos.filter(equipoCompleto).map(cerrarEquipo);
     const ubic = ubicInst || await capturarUbicacion(6000);
     if (!ubic) showToast("⚠️ Se guardó sin ubicación (permiso de ubicación no disponible)");
     let firmaKey: string | undefined;
@@ -3128,76 +3171,10 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
           <div>
             <label className="text-[11px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-2">Equipos instalados</label>
             <div className="space-y-3">
-              {equipos.map((eq, idx) => {
-                const cat = eq.categoria;
-                const marcas = cat === "camaras" ? MARCAS_CAMARAS : MARCAS_REDES;
-                const tipos = cat === "camaras" ? TIPOS_EQUIPO_CAMARAS : TIPOS_EQUIPO_REDES;
-                const cls = "w-full bg-[#060810] border border-[#1a2235] rounded-lg px-2.5 py-2 text-sm text-[#e8e8f0] focus:outline-none focus:border-[#0ea5c8] min-w-0";
-                return (
-                  <div key={eq.id} className="rounded-xl border border-[#1a2235] bg-[#080b16] p-3 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-[#8090a8] uppercase tracking-wider">Equipo {idx + 1} · ¿Qué se instaló?</span>
-                      {equipos.length > 1 && <button type="button" onClick={() => delEquipo(eq.id)} className="text-red-400 hover:bg-red-500/10 rounded p-1"><X size={14} /></button>}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {([["redes", "🌐 Redes"], ["camaras", "📹 Cámaras"]] as const).map(([k, lbl]) => (
-                        <button key={k} type="button"
-                          onClick={() => setEquipos(equipos.map(x => x.id === eq.id ? { ...x, categoria: k, tipoEquipo: "", marca: "", marcaOtra: "", modelo: "" } : x))}
-                          className={`py-2.5 rounded-lg text-sm font-semibold border transition-all ${cat === k ? "bg-[#0ea5c8]/15 border-[#0ea5c8] text-[#0ea5c8]" : "bg-[#060810] border-[#1a2235] text-[#8090a8] hover:text-white"}`}>
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-
-                    {cat && (
-                      <>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">{cat === "camaras" ? "Tipo de cámara" : "Equipo de red"}</label>
-                            <select value={eq.tipoEquipo || ""} onChange={e => updEquipo(eq.id, "tipoEquipo", e.target.value)} className={cls}>
-                              <option value="">Seleccionar...</option>
-                              {tipos.map(t => <option key={t}>{t}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Marca</label>
-                            <select value={eq.marca || ""} onChange={e => updEquipo(eq.id, "marca", e.target.value)} className={cls}>
-                              <option value="">Seleccionar...</option>
-                              {marcas.map(m => <option key={m}>{m}</option>)}
-                              <option value="Otra">Otra...</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {eq.marca === "Otra" && (
-                          <input value={eq.marcaOtra || ""} onChange={e => updEquipo(eq.id, "marcaOtra", e.target.value)} placeholder="Escribe la marca" className={cls} />
-                        )}
-
-                        {eq.marca && (
-                          <div className="grid grid-cols-[1fr_72px] gap-2">
-                            <div>
-                              <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Modelo *</label>
-                              <input value={eq.modelo} onChange={e => updEquipo(eq.id, "modelo", e.target.value)}
-                                placeholder={cat === "camaras" ? "Ej. DS-2CD1023G0E-I" : "Ej. Deco S7, ER605..."} className={cls} />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-[#8090a8] font-semibold uppercase tracking-wider block mb-1">Cant.</label>
-                              <input type="number" min={1} value={eq.cantidad || 1} onChange={e => updEquipo(eq.id, "cantidad", Math.max(1, parseInt(e.target.value, 10) || 1))} className={cls} />
-                            </div>
-                          </div>
-                        )}
-
-                        {eq.marca && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <input value={eq.ubicacion || ""} onChange={e => updEquipo(eq.id, "ubicacion", e.target.value)} placeholder="Ubicación (ej. entrada)" className={cls} />
-                            <input value={eq.serial || ""} onChange={e => updEquipo(eq.id, "serial", e.target.value)} placeholder={(eq.cantidad || 1) > 1 ? "Seriales (separados por coma)" : "Serial (opc.)"} className={cls} />
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+              {equipos.map((eq, idx) => (
+                <EquipoEditor key={eq.id} tema="oscuro" titulo={`Equipo ${idx + 1} · ¿Qué se instaló?`} eq={eq}
+                  onChange={n => setEquipos(equipos.map(x => x.id === eq.id ? n : x))} onDelete={() => delEquipo(eq.id)} puedeBorrar={equipos.length > 1} />
+              ))}
             </div>
             <button type="button" onClick={addEquipo} className="w-full mt-2 py-2 border border-dashed border-[#1a2235] rounded-lg text-[#0ea5c8] text-xs font-semibold hover:border-[#0ea5c8] transition-colors">
               + Agregar otro equipo
@@ -3280,6 +3257,17 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
       </Modal>
 
       {/* ── Modal: Ficha del servicio ── */}
+      <Modal open={!!reasignar} onClose={() => setReasignar(null)} title="Reasignar orden" width="max-w-sm" persistent>
+        {reasignar && (
+          <div className="space-y-3">
+            <p className="text-xs text-[#8090a8]">La orden se vuelve a agendar para la nueva fecha y el técnico la ve desde el inicio del flujo.</p>
+            <Input label="Nueva fecha y hora *" type="datetime-local" value={reasignar.fecha} onChange={e => setReasignar({ ...reasignar, fecha: e.target.value })} />
+            <Input label="Motivo (opcional)" value={reasignar.motivo} onChange={e => setReasignar({ ...reasignar, motivo: e.target.value })} placeholder="Ej. el propietario pidió cambiar el día" />
+            <div className="flex justify-end gap-2"><Btn variant="ghost" onClick={() => setReasignar(null)}>Cancelar</Btn><Btn onClick={confirmarReasignacion}>🔁 Reasignar</Btn></div>
+          </div>
+        )}
+      </Modal>
+
       <Modal open={!!detalle} onClose={() => setDetalle(null)} title={detalle ? `${otLabel(detalle)} — ${detalle.tipoServicio}` : ""} width="max-w-lg">
         {detalle && (
           <div className="space-y-4 text-sm">
@@ -3325,11 +3313,18 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                   <span className="text-[11px] font-bold text-violet-300 uppercase tracking-wider">📋 Orden de trabajo</span>
                   <Badge className="text-violet-300 bg-violet-500/10 border-violet-500/30">{ORDEN_LABEL[detalle.estadoOrden]}</Badge>
                 </div>
-                <div className="flex gap-1 mb-1">
-                  {ORDEN_PASOS.map((_, i) => {
-                    const idx = ["asignada", "en_camino", "en_espera", "en_proceso", "terminada", "firmada"].indexOf(detalle.estadoOrden as string);
-                    return <div key={i} className={`h-1 flex-1 rounded ${i <= idx ? "bg-violet-400" : "bg-[#1a2235]"}`} />;
-                  })}
+                {(() => { const { labels, actual } = pasosDeOrden(detalle.estadoOrden as EstadoOrden); return (
+                  <div className="flex gap-1 mb-1">
+                    {labels.map((l, i) => <div key={l} title={l} className={`h-1 flex-1 rounded ${i <= actual ? (detalle.estadoOrden === "reasignada" && i === 1 ? "bg-amber-400" : "bg-violet-400") : "bg-[#1a2235]"}`} />)}
+                  </div>); })()}
+                <div className="flex items-center gap-2 py-1">
+                  <span className="text-[#8090a8] shrink-0">Estado:</span>
+                  <select value={detalle.estadoOrden} onChange={e => cambiarEstadoOrden(detalle, e.target.value as EstadoOrden)}
+                    className="flex-1 min-w-0 bg-[#0d1220] border border-[#1a2235] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-violet-400">
+                    {ORDEN_ESTADOS_TODOS.map(x => <option key={x} value={x}>{ORDEN_LABEL[x]}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setReasignar({ fecha: detalle.fechaProgramada || ahoraLocal(), motivo: "" })}
+                    className="shrink-0 px-2 py-1 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10">🔁 Reasignar</button>
                 </div>
                 {detalle.fechaProgramada && <div><span className="text-[#8090a8]">Programada:</span> <span className="text-white">{new Date(detalle.fechaProgramada).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" })}</span></div>}
                 {detalle.direccion && <div><span className="text-[#8090a8]">Dirección:</span> <span className="text-white">{detalle.direccion}</span> · <a href={comoLlegarUrl(detalle.direccion)} target="_blank" rel="noopener noreferrer" className="text-[#0ea5c8] hover:underline">Cómo llegar</a></div>}
@@ -3349,6 +3344,24 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
               </div>
             )}
 
+            {detalle.estadoOrden && ORDEN_PERMITE_BITACORA.includes(detalle.estadoOrden) && (
+              <div className="bg-[#060810] border border-[#1a2235] rounded-lg p-3 text-xs space-y-2">
+                <div className="text-[11px] font-bold text-[#8090a8] uppercase tracking-wider">📝 Observaciones de la orden</div>
+                {(detalle.bitacora || []).length === 0 && <div className="text-[#5a6a80]">Sin observaciones.</div>}
+                {(detalle.bitacora || []).map(n => (
+                  <div key={n.id} className="border-l-2 border-[#1a2235] pl-2">
+                    <div className="text-[10px] text-[#5a6a80]">{new Date(n.fecha).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" })}{n.autor ? ` · ${n.autor}` : ""}{n.tipo && n.tipo !== "nota" ? ` · ${n.tipo === "reasignacion" ? "reasignación" : "estado"}` : ""}</div>
+                    <div className="text-white whitespace-pre-wrap">{n.texto}</div>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <input value={notaBitacora} onChange={e => setNotaBitacora(e.target.value)} onKeyDown={e => e.key === "Enter" && agregarNota(detalle)} placeholder="Inconveniente, cambio con el propietario..."
+                    className="flex-1 min-w-0 bg-[#0d1220] border border-[#1a2235] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#0ea5c8]" />
+                  <Btn size="sm" onClick={() => agregarNota(detalle)}>Agregar</Btn>
+                </div>
+              </div>
+            )}
+
             {detalle.equipos.length > 0 && (
               <div>
                 <div className="text-xs font-bold text-[#8090a8] uppercase mb-1.5">Equipos ({detalle.equipos.length})</div>
@@ -3358,6 +3371,11 @@ function RedesPage({ redes, setRedes, cotizaciones, ventas, currentUser, showToa
                       <span className="text-white font-medium">{e.modelo}</span>
                       {e.ubicacion && <span className="text-[#8090a8]"> · {e.ubicacion}</span>}
                       {e.serial && <span className="text-[#5a6a80]"> · S/N {e.serial}</span>}
+                      {tieneCredenciales(e) && (currentUser.rol === "admin" || currentUser.rol === "tecnico") && (
+                        <div className="mt-1 text-[11px] text-amber-300 font-mono break-all">
+                          🔑 {[e.ip && `IP ${e.ip}`, e.usuario && `usr: ${e.usuario}`, e.clave && `clave: ${e.clave}`, e.ssid && `Wi-Fi: ${e.ssid}`, e.claveWifi && `clave Wi-Fi: ${e.claveWifi}`].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

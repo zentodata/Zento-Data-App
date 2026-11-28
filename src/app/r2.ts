@@ -97,3 +97,16 @@ export type EstadoFirma = { firmado: boolean; firmaKey?: string; firmante?: stri
 export const estadoFirmas = (tokens: string[]) => apiFirma<{ estados: Record<string, EstadoFirma> }>({ action: "estado", tokens });
 
 export const urlEnlaceFirma = (token: string) => `${window.location.origin}/?firmar=${token}`;
+
+/** Firma autorizada del técnico (imagen fija protegida con login). Se cachea en memoria. */
+let firmaAutCache: string | null = null;
+export async function firmaAutorizada(): Promise<string> {
+  if (firmaAutCache) return firmaAutCache;
+  const user = getCurrentAuthUser();
+  if (!user) throw new Error("Sin sesión");
+  const token = await user.getIdToken();
+  const r = await fetch("/api/firma-tecnico", { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`Firma ${r.status}`);
+  firmaAutCache = ((await r.json()) as { data: string }).data;
+  return firmaAutCache;
+}

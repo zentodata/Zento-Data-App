@@ -7,6 +7,7 @@ type EquipoRedPDF = {
   id: string; modelo: string; marca?: string; serial?: string; mac?: string;
   ip?: string; puerto?: string; ubicacion?: string; estado?: string; fechaInstalacion?: string; garantia?: string;
   categoria?: string; tipoEquipo?: string; cantidad?: number;
+  usuario?: string; clave?: string; ssid?: string; claveWifi?: string;
 };
 type HistorialRedPDF = {
   id: string; fecha: string;
@@ -28,6 +29,8 @@ export type ServicioRedPDF = {
   historial: HistorialRedPDF[];
   fechaInstalacion: string; ultimaModificacion: string;
   fechaUltimoMant?: string; fechaProximoMant?: string;
+  bitacora?: { id: string; fecha: string; texto: string; autor?: string; tipo?: string }[];
+  firmaTecnico?: string; // imagen (data URL) de la firma del técnico
 };
 
 const HIST_TIPO_LABELS: Record<HistorialRedPDF["tipo"], string> = {
@@ -232,24 +235,53 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     doc.text(`EQUIPOS INSTALADOS (${s.equipos.length})`, marginX, y);
     y += 14;
     const w = pageW - marginX * 2;
-    const cW = [w * 0.28, w * 0.18, w * 0.22, w * 0.16, w * 0.16];
+    const cW = [w * 0.34, w * 0.15, w * 0.19, w * 0.16, w * 0.16];
     doc.setFillColor(15, 23, 42);
     doc.rect(marginX, y, w, 18, "F");
     doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255);
     let cx = marginX + 4;
-    ["MODELO", "MARCA", "UBICACIÓN", "SERIAL", "MAC"].forEach((h, i) => { doc.text(h, cx, y + 12); cx += cW[i]; });
+    ["EQUIPO / MODELO", "MARCA", "UBICACIÓN", "SERIAL", "MAC"].forEach((h, i) => { doc.text(h, cx, y + 12); cx += cW[i]; });
     y += 18;
     doc.setFont("helvetica", "normal"); doc.setTextColor(30, 34, 44);
     s.equipos.forEach((e, idx) => {
-      ensureSpace(16);
-      if (idx % 2 === 0) { doc.setFillColor(246, 248, 251); doc.rect(marginX, y, w, 16, "F"); }
       doc.setFontSize(8.5);
+      const equipo = `${(e.cantidad || 1) > 1 ? e.cantidad + "x " : ""}${e.tipoEquipo && e.tipoEquipo !== "Otro" && e.tipoEquipo !== e.modelo ? e.tipoEquipo + " " : ""}${e.modelo || "-"}`;
+      const vals = [equipo, e.marca || "-", e.ubicacion || "-", e.serial || "-", e.mac || "-"];
+      const cols = vals.map((v, i) => doc.splitTextToSize(v, cW[i] - 8) as string[]);
+      const rowH = Math.max(...cols.map(c => c.length)) * 10.5 + 6;
+      ensureSpace(rowH);
+      if (idx % 2 === 0) { doc.setFillColor(246, 248, 251); doc.rect(marginX, y, w, rowH, "F"); }
       let cx2 = marginX + 4;
-      const vals = [`${(e.cantidad || 1) > 1 ? e.cantidad + "x " : ""}${e.modelo || "-"}`, e.marca || "-", e.ubicacion || "-", e.serial || "-", e.mac || "-"];
-      vals.forEach((v, i) => { doc.text(v, cx2, y + 11); cx2 += cW[i]; });
-      y += 16;
+      cols.forEach((lines, i) => { doc.text(lines, cx2, y + 11); cx2 += cW[i]; });
+      y += rowH;
     });
     y += 16;
+
+    // ── Accesos administrativos (se entregan al cliente en el acta) ──
+    const conAcceso = s.equipos.filter(e => e.usuario || e.clave || e.ssid || e.claveWifi || (e.ip && (e.usuario || e.clave)));
+    if (conAcceso.length) {
+      ensureSpace(40);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(15, 23, 42);
+      doc.text("ACCESOS ADMINISTRATIVOS", marginX, y);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(180, 110, 10);
+      doc.text("Información confidencial: resguárdela y cambie las contraseñas si es necesario.", pageW - marginX, y, { align: "right" });
+      y += 12;
+      conAcceso.forEach(e => {
+        const titulo = `${e.tipoEquipo && e.tipoEquipo !== "Otro" ? e.tipoEquipo + " " : ""}${e.marca || ""} ${e.modelo !== e.tipoEquipo ? e.modelo : ""}${e.ubicacion ? " (" + e.ubicacion + ")" : ""}`.replace(/\s+/g, " ").trim();
+        const campos = [e.ip && `IP: ${e.ip}`, e.usuario && `Usuario: ${e.usuario}`, e.clave && `Contraseña: ${e.clave}`, e.ssid && `Wi-Fi: ${e.ssid}`, e.claveWifi && `Clave Wi-Fi: ${e.claveWifi}`].filter(Boolean) as string[];
+        const lineas = doc.splitTextToSize(campos.join("     "), w - 20) as string[];
+        const h = 16 + lineas.length * 11;
+        ensureSpace(h + 6);
+        doc.setFillColor(255, 251, 235); doc.setDrawColor(245, 220, 150);
+        doc.roundedRect(marginX, y, w, h, 4, 4, "FD");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(30, 34, 44);
+        doc.text(titulo, marginX + 10, y + 12);
+        doc.setFont("courier", "normal"); doc.setFontSize(8.5);
+        doc.text(lineas, marginX + 10, y + 24);
+        y += h + 6;
+      });
+      y += 10;
+    }
   }
 
   // ── Historial (fluye en la misma hoja, junto con los datos del servicio) ──
@@ -306,6 +338,25 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
     }
 
     y += blockH + 10;
+  }
+
+  // ── Observaciones de la orden (bitácora) ──
+  if ((s.bitacora || []).length > 0) {
+    ensureSpace(40);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(15, 23, 42);
+    doc.text("OBSERVACIONES DE LA ORDEN", marginX, y);
+    y += 14;
+    const cw = pageW - marginX * 2 - 20;
+    for (const n of s.bitacora!) {
+      const img = textBlockToImage(n.texto, cw, 8.5, 11.5, "#323846");
+      ensureSpace(img.heightPt + 20);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(90, 100, 120);
+      doc.text(`${new Date(n.fecha).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" })}${n.autor ? "  ·  " + n.autor : ""}`, marginX + 10, y + 8);
+      doc.addImage(img.dataUrl, "PNG", marginX + 10, y + 12, img.widthPt, img.heightPt);
+      doc.setDrawColor(210, 214, 226); doc.line(marginX + 2, y + 2, marginX + 2, y + 12 + img.heightPt);
+      y += img.heightPt + 20;
+    }
+    y += 6;
   }
 
   // ── Fotos del proyecto (página aparte, agrupadas por cada entrada del
@@ -369,7 +420,7 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
 
   // ── Firmas de cierre (acta de entrega firmada en la app, si existe) ──
   const conFirma = historialOrdenado.slice().reverse().find(h => h.firma);
-  ensureSpace(conFirma ? 130 : 70);
+  ensureSpace(conFirma || s.firmaTecnico ? 130 : 70);
   y += 20;
   const sigW = (pageW - marginX * 2 - 30) / 2;
   if (conFirma?.firma) {
@@ -380,13 +431,21 @@ async function buildPdf(s: ServicioRedPDF): Promise<jsPDF> {
       doc.addImage(conFirma.firma, "PNG", marginX + 10, y + 60 - d.h * k, d.w * k, d.h * k);
     } catch { /* firma no legible, se omite */ }
     y += 64;
-  }
+  } else if (s.firmaTecnico) y += 64;
   doc.setDrawColor(150, 156, 168);
   doc.line(marginX, y, marginX + sigW, y);
+  if (s.firmaTecnico) {
+    try {
+      const d = await loadImageDims(s.firmaTecnico);
+      const maxW = sigW - 20, maxH = 56;
+      const k = Math.min(maxW / d.w, maxH / d.h);
+      doc.addImage(s.firmaTecnico, "PNG", marginX + sigW + 40, y - 2 - d.h * k, d.w * k, d.h * k);
+    } catch { /* firma no legible, se omite */ }
+  }
   doc.line(marginX + sigW + 30, y, marginX + sigW * 2 + 30, y);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 100, 120);
   doc.text(conFirma?.firma ? `Firma del Cliente — ${conFirma.firmante || s.clienteNombre}` : "Firma del Cliente", marginX, y + 14);
-  doc.text("Firma de Zento Data", marginX + sigW + 30, y + 14);
+  doc.text(s.firmaTecnico ? "Firma del Técnico — Zento Data" : "Firma de Zento Data", marginX + sigW + 30, y + 14);
   if (conFirma?.firma) {
     doc.setFontSize(7.5); doc.setTextColor(150, 156, 168);
     doc.text(`Acta de entrega firmada digitalmente el ${new Date(conFirma.fecha).toLocaleDateString("es-GT")}`, marginX, y + 26);
