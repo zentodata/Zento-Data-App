@@ -14,7 +14,7 @@ import type { ServicioRed, EquipoRed, ArchivoRed, HistorialRed, Cotizacion, Ubic
 import {
   type EstadoOrden, type BorradorOrden, type BitacoraOrden, ORDEN_LABEL, pasosDeOrden, ORDEN_PERMITE_BITACORA,
   buildDescTecnica, equipoCompleto, equipoIncompleto, cerrarEquipo, mezclarRedes,
-  capturarUbicacion, mapaUrl, comoLlegarUrl, telDigitos, waUrl, comprimirImagen,
+  capturarUbicacion, mapaUrl, comoLlegarUrl, telDigitos, waUrl, comprimirImagen, selloFoto, mensajeWhatsapp, avisoDeEstado, AVISOS_WA, type TipoAviso,
 } from "@/app/redesCatalogo";
 
 // ─── Utilidades ──────────────────────────────────────────────────────────────
@@ -100,8 +100,8 @@ const inputCls = "w-full bg-[#f6f7fb] border border-[#e1e4ef] rounded-lg px-3 py
 const labelCls = "block text-sm text-slate-600 mb-1";
 
 // Galería de evidencia (cámara / galería) — sube a R2 al elegir cada foto
-function Galeria({ items, onChange, max = 6, requerida = false, titulo = "Galería de evidencia", aviso }: {
-  items: ArchivoRed[]; onChange: (v: ArchivoRed[]) => void; max?: number; requerida?: boolean; titulo?: string; aviso: (m: string) => void;
+function Galeria({ items, onChange, max = 6, requerida = false, titulo = "Galería de evidencia", aviso, sello }: {
+  items: ArchivoRed[]; onChange: (v: ArchivoRed[]) => void; max?: number; requerida?: boolean; titulo?: string; aviso: (m: string) => void; sello?: () => string;
 }) {
   const [ocupado, setOcupado] = useState(false);
   const itemsRef = useRef(items);
@@ -114,7 +114,7 @@ function Galeria({ items, onChange, max = 6, requerida = false, titulo = "Galer�
     try {
       for (const f of Array.from(files)) {
         if (!f.type.startsWith("image/")) continue;
-        const data = await comprimirImagen(f);
+        const data = await comprimirImagen(f, 1280, 0.72, sello?.());
         let nuevo: ArchivoRed;
         try { nuevo = { id: uid(), nombre: f.name, data: "", key: await subirDataUrl(data, f.name.replace(/\.\w+$/, "") + ".jpg", `redes/adjuntos/${hoyLocal().slice(0, 7)}`) }; }
         catch { nuevo = { id: uid(), nombre: f.name, data }; aviso("Sin conexión al almacenamiento: la foto se guardó en este dispositivo"); }
@@ -271,7 +271,7 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
 
       {d.paso === 0 && (
         <>
-          <Galeria titulo="Foto de fachada o punto" requerida max={1} aviso={aviso}
+          <Galeria titulo="Foto de fachada o punto" requerida max={1} aviso={aviso} sello={() => selloFoto(sv)}
             items={d.fachada ? [d.fachada] : []} onChange={v => upd({ fachada: v[0] })} />
           <div>
             <label className={labelCls}>Ubicación o referencia</label>
@@ -289,7 +289,7 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
           ))}
           <button onClick={() => upd({ equipos: [...d.equipos, { id: uid(), modelo: "", cantidad: 1 }] })}
             className="w-full py-2.5 border-2 border-dashed rounded-xl font-semibold" style={{ borderColor: NAVY, color: NAVY }}>+ Agregar otro equipo</button>
-          <Galeria requerida aviso={aviso} items={d.fotosEquipos} onChange={v => upd({ fotosEquipos: v })} />
+          <Galeria requerida aviso={aviso} sello={() => selloFoto(sv)} items={d.fotosEquipos} onChange={v => upd({ fotosEquipos: v })} />
         </>
       )}
 
@@ -304,7 +304,7 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
             <textarea className={inputCls} rows={3} maxLength={500} value={d.observaciones} onChange={e => upd({ observaciones: e.target.value })} placeholder="Ej. Todo ok, se probó la grabación" />
             <div className="text-right text-xs text-slate-400">{d.observaciones.length}/500</div>
           </div>
-          <Galeria titulo="Prueba de video / funcionamiento" requerida aviso={aviso} items={d.fotosPrueba} onChange={v => upd({ fotosPrueba: v })} />
+          <Galeria titulo="Prueba de video / funcionamiento" requerida aviso={aviso} sello={() => selloFoto(sv)} items={d.fotosPrueba} onChange={v => upd({ fotosPrueba: v })} />
         </>
       )}
 
@@ -328,7 +328,7 @@ function Asistente({ sv, perfilNombre, guardar, aviso, onTerminado }: {
               ? <FirmaAutPrev />
               : <SignaturePad value={d.firmaTecnico || null} onChange={v => upd({ firmaTecnico: v || undefined })} />}
           </div>
-          <Galeria titulo="Fotos del cierre (opcional)" aviso={aviso} items={d.fotosCierre} onChange={v => upd({ fotosCierre: v })} />
+          <Galeria titulo="Fotos del cierre (opcional)" aviso={aviso} sello={() => selloFoto(sv)} items={d.fotosCierre} onChange={v => upd({ fotosCierre: v })} />
         </>
       )}
 
@@ -518,6 +518,17 @@ function Detalle({ sv, cot, perfilNombre, guardar, aviso, onBack, hidratar }: {
                 {tel && telDigitos(tel) && <Acciones icono="📞" label="Llamar" color="#25a244" href={`tel:+${telDigitos(tel)}`} />}
               </div>
             </div>
+            {wa && telDigitos(wa) && (
+              <div className="mt-3 pt-3 border-t border-[#eef0f7]">
+                <div className="text-xs font-semibold text-slate-500 mb-1.5">Avisar al cliente por WhatsApp</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVISOS_WA.filter(a => a.id !== "recordatorio").map(a => (
+                    <a key={a.id} href={waUrl(wa, mensajeWhatsapp(sv, a.id as TipoAviso, perfilNombre))} target="_blank" rel="noopener noreferrer"
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border ${a.id === avisoDeEstado(sv.estadoOrden) ? "bg-[#25a244] text-white border-[#25a244]" : "bg-white text-slate-600 border-[#e1e4ef]"}`}>{a.label}</a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className={card}>
