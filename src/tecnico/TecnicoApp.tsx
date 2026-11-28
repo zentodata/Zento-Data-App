@@ -173,7 +173,7 @@ function FirmaAutPrev() {
   useEffect(() => { let a = true; firmaAutorizada().then(d => a && setSrc(d)).catch(() => a && setErr(true)); return () => { a = false; }; }, []);
   return (
     <div className="rounded-xl border border-[#e1e4ef] bg-white h-28 flex items-center justify-center">
-      {src ? <img src={src} alt="Firma autorizada" className="max-h-24 max-w-full object-contain" />
+      {src ? <img src={src} alt="Firma autorizada" className="max-h-[76px] max-w-full object-contain" />
         : <span className="text-sm text-slate-400">{err ? "No se pudo cargar la firma (¿sin conexión?)" : "Cargando firma..."}</span>}
     </div>
   );
